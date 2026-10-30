@@ -35,17 +35,13 @@
  * {@link ResourceLogPinStore} gets a served log refused when it is a
  * rollback, a fork, or an SCID/method switch relative to the pinned head.
  */
-import {
-  getFileUrl,
-  readLogFromString,
-  resolveDIDFromLog
-} from '@interop/did-method-webvh'
+import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type {
   DIDDoc,
   DIDLog,
   DIDResolutionMeta
 } from '@interop/did-method-webvh'
-import { resourcePath, toUrl } from '@interop/was-client/paths'
+import { accountLogUrl, didWebvhLogLocation } from './logLocation.js'
 import type { PublishedWebvhLog } from './didWebvh.js'
 import {
   webvhResourceLogController,
@@ -278,12 +274,11 @@ export async function checkAndAdvanceAccountLogPin({
  *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh, as the caller's
- *   stored account pointer names it
- * @param options.spaceId {string}   the account's Space id
- * @param options.host {string}   the storage server the account lives on
+ *   stored account pointer names it; it locates its own log
+ *   ({@link didWebvhLogLocation})
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins; the account log's slot is keyed by {@link accountLogPinId} over the
- *   `spaceId` above
+ *   Space id the DID names
  * @param [options.published] {PublishedWebvhLog}   a head this same run
  *   already read and resolved (an establishment handing its `accountLog`
  *   forward), reused in place of the fetch. Every check below still runs on
@@ -299,25 +294,25 @@ export async function checkAndAdvanceAccountLogPin({
  */
 export async function verifyAccountLog({
   did,
-  spaceId,
-  host,
   pinStore,
   published
 }: {
   did: string
-  spaceId: string
-  host: string
   pinStore?: ResourceLogPinStore
   published?: PublishedWebvhLog
 }): Promise<VerifiedAccountLog> {
-  const head = published ?? (await readAccountLog({ spaceId, host }))
+  const location = didWebvhLogLocation({ did })
+  const read =
+    published === undefined
+      ? await readAccountLog({ logUrl: location.logUrl })
+      : { published, spaceId: location.spaceId }
   await adoptAccountLog({
-    published: head,
+    published: read.published,
     expectedDid: did,
-    spaceId,
+    spaceId: read.spaceId,
     pinStore
   })
-  return verifiedAccountLogOf({ published: head })
+  return verifiedAccountLogOf({ published: read.published })
 }
 
 /**
@@ -339,23 +334,22 @@ export async function verifyAccountLog({
  * check-and-advance {@link verifyAccountLog} runs, under the same slot.
  *
  * @param options {object}
- * @param options.spaceId {string}   the Space whose owner is wanted
- * @param options.host {string}   the storage server the Space lives on
+ * @param options.spaceUrl {string}   the Space whose owner is wanted
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins, keyed by {@link accountLogPinId} over the `spaceId` above
+ *   pins, keyed by {@link accountLogPinId} over the Space's id
  * @returns {Promise<PublishedWebvhLog>}   the owner's DID, the resolved
  *   document, the raw log, and the log's effective update-key parameters
  */
 export async function discoverAccountLog({
-  spaceId,
-  host,
+  spaceUrl,
   pinStore
 }: {
-  spaceId: string
-  host: string
+  spaceUrl: string
   pinStore?: ResourceLogPinStore
 }): Promise<PublishedWebvhLog> {
-  const published = await readAccountLog({ spaceId, host })
+  const { published, spaceId } = await readAccountLog({
+    logUrl: accountLogUrl({ spaceUrl })
+  })
   return adoptAccountLog({ published, spaceId, pinStore })
 }
 
@@ -394,31 +388,24 @@ async function adoptAccountLog({
 }
 
 /**
- * The one fetch-parse-resolve body both readers share: fetch `id/did.jsonl`
+ * The one fetch-parse-resolve body both readers share: fetch `did.jsonl`
  * unauthenticated, parse and resolve it, and refuse a resolved DID whose
  * published log location is not the URL it was served from. The location
- * check compares the host of `getFileUrl(did)` against the fetched URL, and
- * its path against the fetched path past the server's base path (the DID
- * encodes no base path); anything else is a log published for another
- * location and served here.
+ * check compares the log URL the resolved DID encodes
+ * ({@link didWebvhLogLocation}) against the fetched URL; anything else is a
+ * log published for another location and served here.
  *
  * @param options {object}
- * @param options.spaceId {string}
- * @param options.host {string}
- * @returns {Promise<PublishedWebvhLog>}   the resolved head, with no ETag
- *   (the read is a plain fetch, not a store read)
+ * @param options.logUrl {string}   the `did.jsonl` URL to fetch
+ * @returns {Promise<{ published: PublishedWebvhLog, spaceId: string }>}
+ *   the resolved head, with no ETag (the read is a plain fetch, not a store
+ *   read), beside the Space id its DID locates, read in the location check
  */
 async function readAccountLog({
-  spaceId,
-  host
+  logUrl: url
 }: {
-  spaceId: string
-  host: string
-}): Promise<PublishedWebvhLog> {
-  const url = toUrl({
-    baseUrl: host,
-    path: resourcePath(spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
-  })
+  logUrl: string
+}): Promise<{ published: PublishedWebvhLog; spaceId: string }> {
   const response = await fetch(url)
   if (response.status === 404) {
     throw new AccountLogMissingError()
@@ -437,29 +424,24 @@ async function readAccountLog({
       }).`
     )
   }
-  const publishedAt = new URL(getFileUrl(resolved.did))
-  const fetchedFrom = new URL(url)
-  // The DID encodes the server's host and the Space path, not a base path a
-  // sub-path deployment serves under (`toUrl` keeps that prefix), so the
-  // expected path is the server's base path joined with the DID's own.
-  const basePath = new URL(host).pathname.replace(/\/$/, '')
-  if (
-    publishedAt.host !== fetchedFrom.host ||
-    basePath + publishedAt.pathname !== fetchedFrom.pathname
-  ) {
+  const location = didWebvhLogLocation({ did: resolved.did })
+  if (location.logUrl !== new URL(url).href) {
     throw new Error(
       `did:webvh: the published did.jsonl resolves to ${resolved.did}, ` +
-        `whose log location (${publishedAt.href}) is not where it was ` +
-        `served from (${fetchedFrom.href}).`
+        `whose log location (${location.logUrl}) is not where it was ` +
+        `served from (${url}).`
     )
   }
   return {
-    did: resolved.did,
-    doc: resolved.doc,
-    log,
-    updateKeys: resolved.meta.updateKeys ?? [],
-    nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
-    meta: resolved.meta
+    published: {
+      did: resolved.did,
+      doc: resolved.doc,
+      log,
+      updateKeys: resolved.meta.updateKeys ?? [],
+      nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
+      meta: resolved.meta
+    },
+    spaceId: location.spaceId
   }
 }
 
@@ -523,8 +505,6 @@ export function verifiedAccountLogOf({
  *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh
- * @param options.spaceId {string}   the data Space id
- * @param options.host {string}   the storage server the account lives on
  * @param options.pinStore {ResourceLogPinStore}   the account log's
  *   chain-head pin, checked and advanced when the log is fetched here
  * @param [options.log] {DIDLog}   the account log this run already stands on
@@ -533,14 +513,10 @@ export function verifiedAccountLogOf({
  */
 export function accountControllerResolver({
   did,
-  spaceId,
-  host,
   pinStore,
   log
 }: {
   did: string
-  spaceId: string
-  host: string
   pinStore: ResourceLogPinStore
   log?: DIDLog
 }): () => Promise<WebvhResourceLogController> {
@@ -548,9 +524,7 @@ export function accountControllerResolver({
   return async () => {
     pending ??= (
       log === undefined
-        ? verifyAccountLog({ did, spaceId, host, pinStore }).then(
-            ({ log: served }) => served
-          )
+        ? verifyAccountLog({ did, pinStore }).then(({ log: served }) => served)
         : Promise.resolve(log)
     ).then(
       served => webvhResourceLogController({ did, log: served }),

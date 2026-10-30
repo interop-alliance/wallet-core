@@ -133,7 +133,9 @@ builds an activity literal inline, and a new event gets its builder here before
 the app writes it. Events the account log already records (enrollment,
 self-enrollment, credential rotation, revocation, forget) have no builder on
 purpose; the verified did:webvh log is their history, and a per-visit activity
-would fill the feed on a default-transient login. `space/wasLink.ts` defines the
-`was-link` QR hand-off payload -- a non-URL JSON blob on purpose, so no OS
-deep-link handler routes it and it cannot leak into history or link-preview
-fetchers.
+would fill the feed on a default-transient login. `space/pwsLink.ts` defines the
+`pws-link` QR hand-off payload (`{ v: 1, t: 'pws-link', baseServerUrl, secret }`)
+-- a non-URL JSON blob on purpose, so no OS deep-link handler routes it and it
+cannot leak into history or link-preview fetchers. It carries the base server
+URL and the passphrase; the account is reached through the keyring record the
+passphrase unlocks, so the link carries no DID.

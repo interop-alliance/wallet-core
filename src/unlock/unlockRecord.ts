@@ -104,10 +104,12 @@ export function generateLadderSeed(): Uint8Array {
 /**
  * The context label mixed into the binding MAC input, versioning the tag
  * construction. Permanent -- changing it orphans every bound credential.
- * Supersedes the recovery record's `freewallet/recovery/binding/v1` (the
- * standing layout is a re-provision boundary; issued codes are re-issued).
+ * `v3` binds the pointer as `{ did, spaceUrl }`; `v2` bound a Space id and a
+ * host. Supersedes the recovery record's `freewallet/recovery/binding/v1`
+ * (the standing layout is a re-provision boundary; issued codes are
+ * re-issued).
  */
-const UNLOCK_BINDING_CONTEXT = 'freewallet/unlock/binding/v2'
+const UNLOCK_BINDING_CONTEXT = 'freewallet/unlock/binding/v3'
 
 /**
  * An unlock record's account binding is absent, malformed, or does not verify
@@ -198,8 +200,7 @@ function bindingMacInput({
       UNLOCK_BINDING_CONTEXT,
       controller,
       pointer.did ?? '',
-      pointer.spaceId,
-      pointer.host,
+      pointer.spaceUrl,
       ladderSeed ? base64urlnopad.encode(ladderSeed) : ''
     ])
   )
@@ -515,8 +516,7 @@ export async function wrapUnlockRecord({
         ...(email ? { email } : {}),
         pointer: {
           ...(pointer.did ? { did: pointer.did } : {}),
-          spaceId: pointer.spaceId,
-          host: pointer.host
+          spaceUrl: pointer.spaceUrl
         },
         createdAt: recordCreatedAtStamp({ createdAt })
       },

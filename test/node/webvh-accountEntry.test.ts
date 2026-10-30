@@ -98,7 +98,7 @@ async function clientAnchoredAccount(): Promise<{
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
     updateKeys
@@ -132,7 +132,7 @@ async function ladderAnchoredAccount(keyIndex = 9) {
   const { idStore, log, didDocument } = memoryIdStore({ spaceId: SPACE_ID })
   const credential = await standingCredential(keyIndex)
   const created = await createLadderAnchoredAccountLog({
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     ladderSeed: credential.ladderSeed,
     keyAgreement: credential.unlockKeys.keyAgreement

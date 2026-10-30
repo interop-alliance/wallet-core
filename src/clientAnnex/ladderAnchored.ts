@@ -136,7 +136,7 @@ import type { LadderRungState } from '../webvh/ladder.js'
  * write that follows; this assembles and signs the log only.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json, when
  *   the wallet keeps a KMS; absent, the genesis is ladder-and-credential-only
@@ -146,13 +146,13 @@ import type { LadderRungState } from '../webvh/ladder.js'
  * @returns {Promise<CreatedWebvhLog>}
  */
 export async function createLadderAnchoredAccountLog({
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   didWebKeys,
   ladderSeed,
   keyAgreement
 }: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
   ladderSeed: Uint8Array
@@ -168,11 +168,11 @@ export async function createLadderAnchoredAccountLog({
   })
   const [rung0Hash] = nextKeyHashes
   const controllerTemplate = didWebvhControllerTemplate({
-    wasServerUrl,
+    baseServerUrl,
     spaceId
   })
   return createLadderAnchoredWebvhLog({
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
     ladderVmKeyMultibase: await ladderVmKeyMultibase({ ladderSeed }),
@@ -207,7 +207,7 @@ export async function createLadderAnchoredAccountLog({
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json, when
  *   the wallet keeps a KMS; folded into the CREATE path only (see the
@@ -237,7 +237,7 @@ export async function createLadderAnchoredAccountLog({
  */
 export async function ensureLadderAnchoredDidWebvh(options: {
   idStore: WebvhIdStore
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
   keysJsonEtag?: string
@@ -262,7 +262,7 @@ export async function ensureLadderAnchoredDidWebvh(options: {
  */
 async function ensureLadderAnchoredDidWebvhOnce({
   idStore,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   didWebKeys,
   keysJsonEtag,
@@ -271,7 +271,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   expectedDid
 }: {
   idStore: WebvhIdStore
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
   keysJsonEtag?: string
@@ -315,7 +315,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
     return { did, published, logMinted: false }
   }
   const created = await createLadderAnchoredAccountLog({
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
     ladderSeed,

@@ -99,6 +99,7 @@ vi.mock('../../src/keys/userKeyRoster.js', async importOriginal => {
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-ladder-anchored'
+const SPACE_URL = `${WAS_URL}/space/${SPACE_ID}/`
 
 /**
  * The account log's pin slot for this suite's fixtures.
@@ -118,7 +119,7 @@ async function ladderAnchoredAccount({
 }) {
   const ladderSeed = generateLadderSeed()
   const created = await createLadderAnchoredAccountLog({
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     ladderSeed,
     keyAgreement
@@ -165,7 +166,7 @@ describe('the ladder-anchored genesis', () => {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
     const { log, webDoc, did } = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement
@@ -220,7 +221,7 @@ describe('the ladder-anchored genesis', () => {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
     const { log, did } = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: KMS_DID_WEB_KEYS,
       ladderSeed,
@@ -404,7 +405,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: KMS_DID_WEB_KEYS,
       ladderSeed,
@@ -489,7 +490,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
   }): Promise<unknown> {
     try {
       await selfEnrollClientCore({
-        pointer: { did, spaceId: SPACE_ID, host: WAS_URL },
+        pointer: { did, spaceUrl: SPACE_URL },
         ladderSeed,
         credentialKeyAgreementKey: {} as never,
         logStore: store,
@@ -878,7 +879,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
         (err: unknown) => err
       )
       const core = await selfEnrollClientCore({
-        pointer: { did, spaceId: SPACE_ID, host: WAS_URL },
+        pointer: { did, spaceUrl: SPACE_URL },
         ladderSeed,
         credentialKeyAgreementKey: {} as never,
         logStore: store
@@ -1148,7 +1149,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
     it('hands the core caller the minted key set beside the head, and propagates committed', async () => {
       const { idStore, logText, ladderSeed, did } = await publishedAccount()
-      const pointer = { did, spaceId: SPACE_ID, host: WAS_URL }
+      const pointer = { did, spaceUrl: SPACE_URL }
       // Everything the caller's pending record carries, exactly as it lands in
       // the seam.
       const persisted: Array<{
@@ -1206,7 +1207,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       userKeyRosterDescriptorStoreMock.mockClear()
 
       await selfEnrollClientCore({
-        pointer: { did, spaceId: SPACE_ID, host: WAS_URL },
+        pointer: { did, spaceUrl: SPACE_URL },
         ladderSeed,
         credentialKeyAgreementKey: {} as never,
         logStore: idStore,
@@ -1264,7 +1265,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
             })
           : account.idStore
       await selfEnrollClientCore({
-        pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
+        pointer: { did: account.did, spaceUrl: SPACE_URL },
         ladderSeed: account.ladderSeed,
         credentialKeyAgreementKey: {} as never,
         logStore: store,
@@ -1298,7 +1299,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
         })
 
         const resumed = await selfEnrollClientCore({
-          pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
+          pointer: { did: account.did, spaceUrl: SPACE_URL },
           ladderSeed: account.ladderSeed,
           credentialKeyAgreementKey: {} as never,
           logStore: account.idStore,
@@ -1373,7 +1374,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
       for (const builtOnHead of malformed) {
         const core = await selfEnrollClientCore({
-          pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
+          pointer: { did: account.did, spaceUrl: SPACE_URL },
           ladderSeed: account.ladderSeed,
           credentialKeyAgreementKey: {} as never,
           logStore: store,
@@ -1499,7 +1500,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
     it('emits every stage and one clean outcome, marking a completed continuation prior', async () => {
       const { idStore, ladderSeed, did } = await publishedAccount()
-      const pointer = { did, spaceId: SPACE_ID, host: WAS_URL }
+      const pointer = { did, spaceUrl: SPACE_URL }
       let builtOnHead: { scid: string; versionId: string } | undefined
 
       const first = await selfEnrollClientCore({
@@ -1613,7 +1614,7 @@ describe('ensureLadderAnchoredDidWebvh hands its head forward', () => {
     const ladderSeed = generateLadderSeed()
     const created = await ensureLadderAnchoredDidWebvh({
       idStore: account.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement: KEY_AGREEMENT
@@ -1650,7 +1651,7 @@ describe('ensureLadderAnchoredDidWebvh hands its head forward', () => {
     const ladderSeed = generateLadderSeed()
     const first = await ensureLadderAnchoredDidWebvh({
       idStore: account.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement: KEY_AGREEMENT
@@ -1666,7 +1667,7 @@ describe('ensureLadderAnchoredDidWebvh hands its head forward', () => {
     }
     const adopted = await ensureLadderAnchoredDidWebvh({
       idStore: countingStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement: KEY_AGREEMENT

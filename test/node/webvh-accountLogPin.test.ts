@@ -36,6 +36,9 @@ const OTHER_SPACE_ID = 'space-pin-second-account'
 const didWebFor = (spaceId: string) =>
   `did:web:localhost%3A8080:space:${spaceId}:id`
 const ACCOUNT_LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
+// A well-formed SCID no log here was minted under: a DID carrying it at the
+// account's own location names another account published at the same place.
+const OTHER_DID = `did:webvh:durCj2h8E75t8UAyyiZE6WBJwJuPasUm8C1d3KJcqZTfeu:localhost%3A8080:space:${SPACE_ID}:id`
 
 /**
  * Provisions a one-client account and returns its store, DID, the chain-head
@@ -58,7 +61,7 @@ async function provisionedAccount({
   const signingKeyMultibase = first.clientDid.slice('did:key:'.length)
   await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId,
     didWebKeys: {
       authentication: {
@@ -165,23 +168,19 @@ async function accountWithFork() {
  * @param options.did {string}
  * @param options.logText {string}
  * @param options.pinStore {ResourceLogPinStore}
- * @param [options.spaceId] {string}   the account's Space id, which is what
- *   the pin slot is keyed by
  * @returns {Promise<unknown>}
  */
 async function verifyServed({
   did,
   logText,
-  pinStore,
-  spaceId = SPACE_ID
+  pinStore
 }: {
   did: string
   logText: string
   pinStore: ResourceLogPinStore
-  spaceId?: string
 }) {
   serveLog(logText)
-  return verifyAccountLog({ did, spaceId, host: WAS_URL, pinStore })
+  return verifyAccountLog({ did, pinStore })
 }
 
 afterEach(() => {
@@ -216,8 +215,7 @@ describe('verifyAccountLog chain-head pin', () => {
     await verifyServed({
       did: second.did,
       logText: second.genesisLogText,
-      pinStore,
-      spaceId: OTHER_SPACE_ID
+      pinStore
     })
 
     // Each account's pin sits in its own slot, keyed by its own Space id.
@@ -240,8 +238,7 @@ describe('verifyAccountLog chain-head pin', () => {
     await verifyServed({
       did: second.did,
       logText: second.genesisLogText,
-      pinStore,
-      spaceId: OTHER_SPACE_ID
+      pinStore
     })
     const refusal = await verifyServed({
       did: first.did,
@@ -408,9 +405,7 @@ describe('verifyAccountLog chain-head pin', () => {
     serveLog(account.genesisLogText)
     await expect(
       verifyAccountLog({
-        did: 'did:webvh:QmSomeoneElse:localhost%3A8080:space:other:id',
-        spaceId: SPACE_ID,
-        host: WAS_URL,
+        did: OTHER_DID,
         pinStore: memoryResourceLogPinStore()
       })
     ).rejects.toThrow('resolves to a different DID')
@@ -420,9 +415,7 @@ describe('verifyAccountLog chain-head pin', () => {
     const account = await provisionedAccount()
     serveLog(account.genesisLogText)
     const verified = await verifyAccountLog({
-      did: account.did,
-      spaceId: SPACE_ID,
-      host: WAS_URL
+      did: account.did
     })
     expect(verified.doc.id).toBe(account.did)
   })
@@ -566,15 +559,11 @@ describe('verifyAccountLog chain-head pin over a caller-supplied head', () => {
     // First contact pins at the genesis, then the grown head advances it.
     await verifyAccountLog({
       did: account.did,
-      spaceId: SPACE_ID,
-      host: WAS_URL,
       pinStore,
       published: genesisHead!
     })
     await verifyAccountLog({
       did: account.did,
-      spaceId: SPACE_ID,
-      host: WAS_URL,
       pinStore,
       published: grownHead!
     })
@@ -588,8 +577,6 @@ describe('verifyAccountLog chain-head pin over a caller-supplied head', () => {
     await expect(
       verifyAccountLog({
         did: account.did,
-        spaceId: SPACE_ID,
-        host: WAS_URL,
         pinStore,
         published: genesisHead!
       })

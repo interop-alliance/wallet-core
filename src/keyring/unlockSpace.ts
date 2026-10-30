@@ -22,7 +22,6 @@
  * here for the absent Space a fresh unlock secret's keyring lookup meets.
  */
 import { WasClient, type ServiceDescription } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
@@ -52,7 +51,7 @@ export const UNLOCK_SPACE_TYPE = ['AuxiliarySpace', 'Space', 'UnlockSpace']
  * to the helpers it composes, so a call discovers the service at most once.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}   built on the unlock agent's signer
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
@@ -60,16 +59,16 @@ export const UNLOCK_SPACE_TYPE = ['AuxiliarySpace', 'Space', 'UnlockSpace']
  * @returns {WasClient}
  */
 function unlockSpaceClient({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   serviceDescription
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
 }): WasClient {
   return new WasClient({
-    serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
+    baseServerUrl,
     zcapClient,
     serviceDescription
   })
@@ -203,7 +202,7 @@ async function putPlaintextRecord({
  * genuinely absent rather than unreadable.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
@@ -214,14 +213,14 @@ async function putPlaintextRecord({
  * @returns {Promise<void>}
  */
 export async function ensureUnlockSpace({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   serviceDescription,
   spaceId,
   controller,
   name = UNLOCK_SPACE_NAME
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
   spaceId: string
@@ -229,7 +228,7 @@ export async function ensureUnlockSpace({
   name?: string
 }): Promise<void> {
   const was = unlockSpaceClient({
-    storageServerUrl,
+    baseServerUrl,
     zcapClient,
     serviceDescription
   })
@@ -258,7 +257,7 @@ export async function ensureUnlockSpace({
  * no decryption.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
@@ -269,20 +268,20 @@ export async function ensureUnlockSpace({
  * @returns {Promise<unknown | null>}
  */
 export async function getUnlockKeyring({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   serviceDescription,
   spaceId,
   capability
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
   spaceId: string
   capability?: IZcap
 }): Promise<unknown | null> {
   const result = await getUnlockKeyringWithEtag({
-    storageServerUrl,
+    baseServerUrl,
     zcapClient,
     serviceDescription,
     spaceId,
@@ -300,7 +299,7 @@ export async function getUnlockKeyring({
  * errors, and `capability` semantics as {@link getUnlockKeyring}.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
@@ -312,13 +311,13 @@ export async function getUnlockKeyring({
  *   absent only where the header did not reach the client
  */
 export async function getUnlockKeyringWithEtag({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   serviceDescription,
   spaceId,
   capability
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
   spaceId: string
@@ -326,7 +325,7 @@ export async function getUnlockKeyringWithEtag({
 }): Promise<{ record: unknown; etag?: string } | null> {
   return getPlaintextRecord({
     was: unlockSpaceClient({
-      storageServerUrl,
+      baseServerUrl,
       zcapClient,
       serviceDescription
     }),
@@ -355,7 +354,7 @@ export async function getUnlockKeyringWithEtag({
  * half the issuing client recorded, so re-encryption needs no secret.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
@@ -369,7 +368,7 @@ export async function getUnlockKeyringWithEtag({
  * @returns {Promise<{ etag?: string }>}   the stored record's new `ETag`
  */
 export async function putUnlockKeyring({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   serviceDescription,
   spaceId,
@@ -377,7 +376,7 @@ export async function putUnlockKeyring({
   capability,
   ifMatch
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
   spaceId: string
@@ -387,7 +386,7 @@ export async function putUnlockKeyring({
 }): Promise<{ etag?: string }> {
   return putPlaintextRecord({
     was: unlockSpaceClient({
-      storageServerUrl,
+      baseServerUrl,
       zcapClient,
       serviceDescription
     }),
@@ -416,7 +415,7 @@ export async function putUnlockKeyring({
  * so `not-found` is not a statement of absence on its own.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
@@ -429,20 +428,20 @@ export async function putUnlockKeyring({
  *   capability); every other error propagates unchanged
  */
 export async function deleteUnlockSpace({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   serviceDescription,
   spaceId,
   capability
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
   spaceId: string
   capability?: IZcap
 }): Promise<{ outcome: 'deleted' | 'not-found' }> {
   const was = unlockSpaceClient({
-    storageServerUrl,
+    baseServerUrl,
     zcapClient,
     serviceDescription
   })

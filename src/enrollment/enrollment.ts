@@ -37,6 +37,7 @@ import {
 import { base64urlnopad } from '@scure/base'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import {
+  didWebvhLogLocation,
   keyAgreementTwinMultibase,
   mintClientWebvhUpdateKeys,
   updateKeyMultibase
@@ -614,8 +615,6 @@ async function completeEnrollmentBody({
   try {
     verified = await verifyAccountLog({
       did,
-      spaceId: pointer.spaceId,
-      host: pointer.host,
       ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
     })
   } catch (err) {
@@ -647,10 +646,11 @@ async function completeEnrollmentBody({
   // establishes is session-local here; the app's client-local pin is
   // established by its own first login read.
   const zcapClient = webvhZcapClient({ keyAgent, did })
+  const { baseServerUrl, spaceId } = didWebvhLogLocation({ did })
   const store = userKeyRosterDescriptorStore({
-    storageServerUrl: pointer.host,
+    baseServerUrl,
     zcapClient,
-    spaceId: pointer.spaceId,
+    spaceId,
     resolveController: async () =>
       webvhResourceLogController({ did, log: verified.log }),
     pinStore: memoryResourceLogPinStore(),

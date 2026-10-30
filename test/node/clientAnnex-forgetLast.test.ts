@@ -189,7 +189,7 @@ async function forgetLastFixture(options?: {
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
     updateKeys
@@ -218,7 +218,7 @@ async function forgetLastFixture(options?: {
   const annexRungSeed = options?.annexRungSeed ?? ladderSeed
   const annexRung = await clientAnnexRung({ ladderSeed: annexRungSeed })
   const created = await createClientAnnexLog({
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     generationId,
     updateKeyPublicKeyMultibase: annexRung.keyMultibase,
@@ -246,7 +246,7 @@ async function forgetLastFixture(options?: {
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient: foreignClient,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         clientAnnexDid
       }),
@@ -259,7 +259,7 @@ async function forgetLastFixture(options?: {
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient: ownClient,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         clientAnnexDid
       }),
@@ -366,7 +366,7 @@ function ceremonyOptions(
         (async delegation => {
           revokedIds.push((delegation as { id: string }).id)
         }),
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       accountSpaceId: SPACE_ID
     },
     onBeforeRemoval: overrides?.onBeforeRemoval ?? (async () => {})
@@ -977,7 +977,7 @@ describe('forgetLastEnrolledClient', () => {
       mintGenerationDelegation: async ({ clientAnnexDid }) =>
         mintGenerationDelegation({
           zcapClient: siblingClient,
-          wasServerUrl: WAS_URL,
+          baseServerUrl: WAS_URL,
           spaceId: SPACE_ID,
           clientAnnexDid
         }),

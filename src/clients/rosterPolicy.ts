@@ -69,7 +69,6 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { log } from '../log.js'
 import { isResourceLogRefusal } from '../resourceLog/errors.js'
 import { verifyAccountLog } from '../webvh/index.js'
-import type { AccountLogPointer } from './listing.js'
 
 /**
  * What an adopted user key carries: the key itself, the roster epoch to
@@ -224,7 +223,8 @@ export async function checkUserKeyRosterAtLogin({
  * rollback carve-out.
  *
  * @param options {object}
- * @param options.pointer {AccountLogPointer}   where the account log lives
+ * @param options.did {string}   the account's did:webvh, which locates its
+ *   own log
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
  * @param options.userKey {UserKey}   the start's current user key
@@ -249,7 +249,7 @@ export async function checkUserKeyRosterAtLogin({
  *   descriptor to fan out with
  */
 export async function convergeUserKeyRosterToAccount({
-  pointer,
+  did,
   store,
   userKey,
   descriptor,
@@ -259,7 +259,7 @@ export async function convergeUserKeyRosterToAccount({
   accountLogPinStore,
   onUserKeyAdopted
 }: {
-  pointer: AccountLogPointer
+  did: string
   store: EncryptionDescriptorStore
   userKey: UserKey
   descriptor: CollectionEncryption
@@ -290,13 +290,13 @@ export async function convergeUserKeyRosterToAccount({
   let converged: CollectionEncryption | null
   try {
     const { doc } = await verifyAccountLog({
-      ...pointer,
+      did,
       ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
     })
     const result = await convergeUserKeyRosterToDocument({
       store,
       document: doc,
-      did: pointer.did,
+      did,
       descriptor,
       ...(etag !== undefined ? { etag } : {}),
       // The escrow direction needs a key that unwraps every epoch, and the

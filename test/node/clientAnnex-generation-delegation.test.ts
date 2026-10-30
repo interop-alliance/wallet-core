@@ -31,13 +31,12 @@ import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { ZcapClient } from '@interop/ezcap'
 import {
-  collectionMeta,
-  collectionPath,
-  resourcePath,
+  collectionMetaUrl,
+  collectionUrl,
+  resourceUrl,
   rootCapabilityId,
-  spaceMeta,
-  spacePath,
-  toUrl
+  spaceMetaUrl,
+  spaceUrlById
 } from '@interop/was-client/paths'
 import { ladderVmKeyMultibase } from '../../src/webvh/ladderDerivation.js'
 import { clientAnnexRung } from '../../src/clientAnnex/generationRung.js'
@@ -97,7 +96,7 @@ async function clientAnnexFixture() {
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
   const created = await createClientAnnexLog({
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     generationId,
     updateKeyPublicKeyMultibase: rungA.keyMultibase,
@@ -142,7 +141,7 @@ function countedMint({
     })
     return mintGenerationDelegation({
       zcapClient,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       clientAnnexDid,
       ...(now !== undefined ? { now } : {})
@@ -196,7 +195,7 @@ describe('mintGenerationDelegation', () => {
       const now = Date.now()
       const delegation = (await mintGenerationDelegation({
         zcapClient,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         clientAnnexDid: did,
         now
@@ -228,9 +227,9 @@ describe('mintGenerationDelegation', () => {
       // restates its root's target rather than narrowing it, and the two
       // account-ending writes are held off by the server's ladder clause
       // instead (see GENERATION_DELEGATION_ACTIONS).
-      const spaceUrl = toUrl({
-        baseUrl: WAS_URL,
-        path: spacePath(ACCOUNT_SPACE_ID)
+      const spaceUrl = spaceUrlById({
+        baseServerUrl: WAS_URL,
+        spaceId: ACCOUNT_SPACE_ID
       })
       expect(delegation.parentCapability).toBe(rootCapabilityId(spaceUrl))
       expect(delegation.proof.capabilityChain).toEqual([
@@ -257,7 +256,7 @@ describe('mintGenerationDelegation', () => {
     await expect(
       mintGenerationDelegation({
         zcapClient,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         clientAnnexDid: 'did:webvh:QmX:host:space:aux:not-a-generation-id'
       })
@@ -278,16 +277,19 @@ describe('the depth-3 App Connect chain', () => {
       })
       const delegation = await mintGenerationDelegation({
         zcapClient,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         clientAnnexDid: did
       })
 
       const grant = (await zcapClient.delegate({
         capability: delegation,
-        invocationTarget: toUrl({
-          baseUrl: WAS_URL,
-          path: collectionPath(ACCOUNT_SPACE_ID, 'notes')
+        invocationTarget: collectionUrl({
+          spaceUrl: spaceUrlById({
+            baseServerUrl: WAS_URL,
+            spaceId: ACCOUNT_SPACE_ID
+          }),
+          collectionId: 'notes'
         }),
         controller: 'did:key:z6MkfEnrolledAppController',
         allowedActions: ['GET'],
@@ -301,9 +303,9 @@ describe('the depth-3 App Connect chain', () => {
       expect(grant.parentCapability).toBe(delegation.id)
       const chain = grant.proof.capabilityChain
       expect(chain).toHaveLength(2)
-      const spaceUrl = toUrl({
-        baseUrl: WAS_URL,
-        path: spacePath(ACCOUNT_SPACE_ID)
+      const spaceUrl = spaceUrlById({
+        baseServerUrl: WAS_URL,
+        spaceId: ACCOUNT_SPACE_ID
       })
       expect(chain[0]).toBe(rootCapabilityId(spaceUrl))
       // All strings except the last, which embeds the parent whole.
@@ -676,33 +678,40 @@ describe('the write-set floor lands inside the subtree', () => {
   // The zcap attenuation rule for a trailing-slash base: a child target is
   // covered iff it extends the base. The floor is the design doc's
   // 2026-08-18 inventory of every request a transient session must make.
-  const subtree = toUrl({
-    baseUrl: WAS_URL,
-    path: spacePath(ACCOUNT_SPACE_ID)
+  const subtree = spaceUrlById({
+    baseServerUrl: WAS_URL,
+    spaceId: ACCOUNT_SPACE_ID
   })
   const covered = (url: string) => url.startsWith(subtree)
+  const resource = (collectionId: string, resourceId: string) =>
+    resourceUrl({ spaceUrl: subtree, collectionId, resourceId })
+  const collection = (collectionId: string) =>
+    collectionUrl({ spaceUrl: subtree, collectionId })
 
   it('covers every floor request class', () => {
     const floor = [
       // The roster read and the torn-rotation roster PUT.
-      resourcePath(ACCOUNT_SPACE_ID, 'key-map', 'user-key.jsonl'),
+      resource('key-map', 'user-key.jsonl'),
       // Descriptor and /meta GETs.
-      collectionMeta(ACCOUNT_SPACE_ID, 'private-credentials'),
+      collectionMetaUrl({
+        spaceUrl: subtree,
+        collectionId: 'private-credentials'
+      }),
       // Credential and app-key listings and bodies.
-      collectionPath(ACCOUNT_SPACE_ID, 'private-credentials'),
-      resourcePath(ACCOUNT_SPACE_ID, 'private-credentials', 'cid-abc'),
+      collection('private-credentials'),
+      resource('private-credentials', 'cid-abc'),
       // The app-keys app-key PUT (the wallet-internal exemption).
-      resourcePath(ACCOUNT_SPACE_ID, 'app-keys', 'envelope-hash'),
+      resource('app-keys', 'envelope-hash'),
       // The Login-activity PUT that gates delivery.
-      resourcePath(ACCOUNT_SPACE_ID, 'wallet-activity', 'activity-1'),
+      resource('wallet-activity', 'activity-1'),
       // Collection provisioning: a Description PUT on a name that does not
       // exist at delegation mint time.
-      collectionPath(ACCOUNT_SPACE_ID, 'brand-new-app-collection'),
+      collection('brand-new-app-collection'),
       // The cascade fan-out's per-collection Description GET + CAS PUT.
-      collectionPath(ACCOUNT_SPACE_ID, 'contacts')
+      collection('contacts')
     ]
-    for (const path of floor) {
-      expect(covered(toUrl({ baseUrl: WAS_URL, path }))).toBe(true)
+    for (const url of floor) {
+      expect(covered(url)).toBe(true)
     }
   })
 
@@ -712,19 +721,21 @@ describe('the write-set floor lands inside the subtree', () => {
     // capability bytes. Nothing in the delegation holds them off any more;
     // the storage server's ladder clause does.
     expect(covered(subtree)).toBe(true)
-    expect(
-      covered(toUrl({ baseUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) }))
-    ).toBe(true)
+    expect(covered(spaceMetaUrl({ spaceUrl: subtree }))).toBe(true)
   })
 
   it('excludes every other Space, prefix or not', () => {
     expect(
-      covered(toUrl({ baseUrl: WAS_URL, path: spacePath('account-space-2') }))
+      covered(
+        spaceUrlById({ baseServerUrl: WAS_URL, spaceId: 'account-space-2' })
+      )
     ).toBe(false)
     // A sibling Space id sharing the string prefix is out: the slash is part
     // of the base.
     expect(
-      covered(toUrl({ baseUrl: WAS_URL, path: spacePath('account-space-1x') }))
+      covered(
+        spaceUrlById({ baseServerUrl: WAS_URL, spaceId: 'account-space-1x' })
+      )
     ).toBe(false)
   })
 })
@@ -780,9 +791,12 @@ describe("the transient VM's delegation authority", () => {
 
       const grant = (await visit.zcapClient.delegate({
         capability: delegation,
-        invocationTarget: toUrl({
-          baseUrl: WAS_URL,
-          path: collectionPath(ACCOUNT_SPACE_ID, 'notes')
+        invocationTarget: collectionUrl({
+          spaceUrl: spaceUrlById({
+            baseServerUrl: WAS_URL,
+            spaceId: ACCOUNT_SPACE_ID
+          }),
+          collectionId: 'notes'
         }),
         controller: 'did:key:z6MkfEnrolledAppController',
         allowedActions: ['GET'],

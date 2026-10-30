@@ -19,15 +19,15 @@ import { serviceDiscoveryResponse } from './serviceDiscovery.js'
  * would serve), and the store.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @returns {Promise<object>}
  */
 export async function publishedAccount({
-  wasServerUrl,
+  baseServerUrl,
   spaceId
 }: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
 }): Promise<{
   did: string
@@ -35,10 +35,10 @@ export async function publishedAccount({
   idStore: ReturnType<typeof memoryIdStore>['idStore']
 }> {
   const { idStore, log } = memoryIdStore({ spaceId })
-  const didWeb = `did:web:${encodeURIComponent(new URL(wasServerUrl).host)}:space:${spaceId}:id`
+  const didWeb = `did:web:${encodeURIComponent(new URL(baseServerUrl).host)}:space:${spaceId}:id`
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     didWebKeys: {
       authentication: {

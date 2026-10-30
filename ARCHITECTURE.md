@@ -89,7 +89,7 @@ root barrel:                 src/index.ts re-exports sync + space, plus
   / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution.
 - **`space`** (deps: --) -- Wallet Space layout contract: collection ids/specs,
   `wallet-activity` wire shape and builders, `publicCredentialUrl`, the
-  `was-link` QR payload, the `inbox` spec and the inbox Grant envelope codec,
+  `pws-link` QR payload, the `inbox` spec and the inbox Grant envelope codec,
   the capability-authorized Space DELETE.
 - **`descriptors`** (deps: resourceLog, space) -- The log-governed descriptor
   source: the wallet's implementation of was-client's
@@ -222,15 +222,16 @@ Why each is isolated, and what each may import, is in
 ## The wallet Space layout (`space`)
 
 A Space is a WAS container, addressed as
-`https://<host>/space/<spaceId>/<collection>/<resource>`. An account has two: a
-data Space for credentials, activity, identity and key-map, and a minimal unlock
-Space holding one keyring resource. `space/collections.ts` is the layout
-contract for the four synced collections. Both replicas must lay them out
-field-for-field identically, since a drift splits the feed and never converges.
-The `shareable` column there is the share-surface allowlist, and the encrypted
-sets still follow `encryption`. The `grantable` column covers every roster
-entry, system collections included. It decides whether a requester's grant may
-name the collection at all. A key- or seed-bearing collection is
+`<baseServerUrl>space/<spaceId>/<collection>/<resource>`, where the base server
+URL is the one locator a wallet holds for a server (see the Glossary). An
+account has two: a data Space for credentials, activity, identity and key-map,
+and a minimal unlock Space holding one keyring resource. `space/collections.ts`
+is the layout contract for the four synced collections. Both replicas must lay
+them out field-for-field identically, since a drift splits the feed and never
+converges. The `shareable` column there is the share-surface allowlist, and the
+encrypted sets still follow `encryption`. The `grantable` column covers every
+roster entry, system collections included. It decides whether a requester's
+grant may name the collection at all. A key- or seed-bearing collection is
 `grantable: false`, which today means `app-keys`, `key-map` and
 `unlock-methods`. The `connections` directory is `grantable: false` too, since
 it is the account's grant index and party list. The contacts specs live in
@@ -288,8 +289,8 @@ Top to bottom; each level's custody rule is load-bearing:
 2. **Keyring record** (`keyring/record.ts` over `keyring/recordEnvelope.ts`,
    `{ version: 2, encryption, wrapped, proof }`) -- the unlock Space's one
    resource: account controller, bind-time email, bind timestamp, and the
-   **account pointer** `{ did, spaceId, host }`. Deliberately no key material of
-   any kind. The envelope seals under the record's own one-epoch descriptor
+   **account pointer** `{ did?, spaceUrl }`. Deliberately no key material of any
+   kind. The envelope seals under the record's own one-epoch descriptor
    (`encryption`, epoch[0] wrapped to the unlock KAK), so the record stays
    self-contained under the everything-seals-to-an-epoch rule. The unlock KAK's
    public half is derivable from the unlock did:key the server stores as the
@@ -366,13 +367,18 @@ Two ordering invariants the apps must honor around the client key record
 ## The did:webvh account log (`webvh`)
 
 The account's stable id is a `did:webvh` whose hash-chained log is hosted as
-`did.jsonl` in the world-readable `id` collection. The log is the single source
-of truth, and a `did:web` projection is kept alongside it. That document is the
-client roster. An enrolled client contributes its Ed25519 key under all four
-relations plus its X25519 twin under `keyAgreement`, while a standing credential
-contributes a `keyAgreement` key and a ladder VM under `assertionMethod` and
-`capabilityDelegation`. Listings keyed on `capabilityInvocation` therefore
-exclude credentials structurally.
+`did.jsonl` in the world-readable `id` collection. The identifier is
+self-locating: its segments after the SCID are the server's host, the base
+server URL's path prefix, `space`, the Space id and the collection, so
+`didWebvhLogLocation` reads the log URL, the Space URL and the base server URL
+off the DID alone, and the location check every reader runs compares the URL a
+log was fetched from against the one its resolved DID encodes. The log is the
+single source of truth, and a `did:web` projection is kept alongside it. That
+document is the client roster. An enrolled client contributes its Ed25519 key
+under all four relations plus its X25519 twin under `keyAgreement`, while a
+standing credential contributes a `keyAgreement` key and a ladder VM under
+`assertionMethod` and `capabilityDelegation`. Listings keyed on
+`capabilityInvocation` therefore exclude credentials structurally.
 
 Three rules carry most of the weight. The controller marker is the document's
 one statement of which signing key a published key-agreement key belongs to.
@@ -397,7 +403,7 @@ switch with `ResourceLogContinuityError`. The pin is a property of the store
 rather than a ceremony argument: `WebvhIdStore` carries it, and each constructor
 derives the slot from the collection it serves. Callers meet `ensureDidWebvh`,
 `verifyAccountLog` (and its discovery twin `discoverAccountLog`, for a reader
-holding a Space id and no DID), `revokeWebvhClient`, `ensureDidWebProjection`
+holding a Space URL and no DID), `revokeWebvhClient`, `ensureDidWebProjection`
 (and its compare alone, `didWebProjectionCurrent`), and the `signAccountEntry`
 seam, whose client and ladder arms decide who signs an entry.
 
@@ -751,7 +757,7 @@ known gap on the `*` subtree marker (WASS-58).
   VPR parsing, QueryByExample matching, cryptosuite negotiation, VP composition,
   the App Connect app-key credential, the VC-API and ephemeral-exchange clients,
   and the `WalletOnboardingQuery` vocabulary. Wallet-core hands it two
-  recognizers, `isWasLinkPayload` (`space`) and `isConnectCode` (`enrollment`);
+  recognizers, `isPwsLinkPayload` (`space`) and `isConnectCode` (`enrollment`);
   nothing in wallet-core depends on it.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC
   shape guards. Import them from the `/vpr` and `/guards` **subpaths**, not the
@@ -772,7 +778,7 @@ one covering the area before changing it.
 
 - [The wallet Space layout (`space`)](docs/architecture/space-layout.md) --
   before changing a collection spec, the system collections, Space provisioning,
-  or the `WalletActivity` and `was-link` wire shapes.
+  or the `WalletActivity` and `pws-link` wire shapes.
 - [The did:webvh account log (`webvh`)](docs/architecture/did-webvh-account-log.md)
   -- before changing the account document's verification methods, update-key
   attribution, the chain-head pin, the `did:web` projection, or the account-log
@@ -830,8 +836,20 @@ not use.
 - **Epoch** -- one generation of a collection's encryption key, its secret
   wrapped to each recipient. Rotating adds an epoch rather than re-encrypting
   history, and prior epochs stay openable via escrow wraps.
-- **Account pointer** -- `{ did, spaceId, host }`, the keyring record's payload;
-  locates the account without authorizing anything against it.
+- **Account pointer** -- `{ did?, spaceUrl }`, the keyring record's payload;
+  locates the account without authorizing anything against it. The DID is
+  self-locating, so once it is present the Space URL is a cache of what the DID
+  resolves to; it is absent only on the credential-anchored establishment's
+  interim record, bound before genesis.
+- **`baseServerUrl`** -- the one name for a server in every signature: the
+  absolute URL under which a server serves `service`, `spaces/` and
+  `space/<spaceId>/` as peers (was-client decision 0003). Every WAS client is
+  built from it, and no caller appends or strips a segment of it. A wallet
+  stores none: the account's did:webvh encodes the host and the base's path
+  prefix (`did:webvh:<scid>:<host>:<prefix...>:space:<spaceId>:id`), and
+  `didWebvhLogLocation` reads the log URL, the Space URL and the base back off
+  the DID; a Space URL in hand gives it through was-client's `baseServerUrlOf`.
+  Avoid: host, serverUrl, storageServerUrl, wasServerUrl.
 - **Client / `clientId`** -- the keyed, custodied, revocable identity of an
   (app, user) pair, and a cache rather than an account's state: a keypair that
   can be a zcap grantee, a delegation controller, or a roster recipient.

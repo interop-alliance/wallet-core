@@ -239,9 +239,9 @@ async function verifyDelegationProof({
 }
 
 /**
- * Whether two annex DIDs name the same auxiliary Space: the same host and
- * the same Space id, whatever their generations. A string that is not an
- * annex DID names no Space.
+ * Whether two annex DIDs name the same auxiliary Space: the same Space
+ * location (host, path prefix and Space id), whatever their generations. A
+ * string that is not an annex DID names no Space.
  *
  * @param options {object}
  * @param options.did {string}
@@ -260,8 +260,7 @@ function sameAuxiliarySpace({
   return (
     parts !== undefined &&
     otherParts !== undefined &&
-    parts.host === otherParts.host &&
-    parts.spaceId === otherParts.spaceId
+    parts.spaceLocation === otherParts.spaceLocation
   )
 }
 

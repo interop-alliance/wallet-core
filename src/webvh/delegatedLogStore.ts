@@ -39,7 +39,7 @@ import {
   WasClient,
   type ServiceDescription
 } from '@interop/was-client'
-import { resourcePath, toUrl, spacesUrl } from '@interop/was-client/paths'
+import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import type { AccountLogStore } from './accountEntry.js'
 import { logResourcePinId } from './verifyLog.js'
@@ -89,7 +89,7 @@ function collectionIsPublic({
  * token.
  *
  * @param options {object}
- * @param options.host {string}   the storage server's base URL
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.spaceId {string}   the Space holding the collection
  * @param options.collectionId {string}   the collection holding the log
  * @param options.delegation {IZcap}   the pre-minted delegation the writes
@@ -105,7 +105,7 @@ function collectionIsPublic({
  * @returns {AccountLogStore}
  */
 export function delegatedWebvhLogStore({
-  host,
+  baseServerUrl,
   spaceId,
   collectionId,
   delegation,
@@ -113,7 +113,7 @@ export function delegatedWebvhLogStore({
   pinStore,
   serviceDescription
 }: {
-  host: string
+  baseServerUrl: string
   spaceId: string
   collectionId: string
   delegation: IZcap
@@ -123,12 +123,13 @@ export function delegatedWebvhLogStore({
 }): AccountLogStore {
   const publicRead = collectionIsPublic({ collectionId })
   const was = new WasClient({
-    serverUrl: spacesUrl({ baseUrl: host }),
+    baseServerUrl,
     zcapClient,
     serviceDescription
   })
-  const pathOf = (resourceId: string) =>
-    resourcePath(spaceId, collectionId, resourceId)
+  const spaceUrl = spaceUrlById({ baseServerUrl, spaceId })
+  const urlOf = (resourceId: string) =>
+    resourceUrl({ spaceUrl, collectionId, resourceId })
 
   return {
     pin: {
@@ -137,9 +138,7 @@ export function delegatedWebvhLogStore({
     },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
       if (publicRead) {
-        const response = await fetch(
-          toUrl({ baseUrl: host, path: pathOf(resourceId) })
-        )
+        const response = await fetch(urlOf(resourceId))
         if (response.status === 404) {
           return undefined
         }
@@ -156,7 +155,7 @@ export function delegatedWebvhLogStore({
       let response
       try {
         response = await was.request({
-          path: pathOf(resourceId),
+          url: urlOf(resourceId),
           method: 'GET',
           capability: delegation
         })
@@ -198,7 +197,7 @@ export function delegatedWebvhLogStore({
       let response
       try {
         response = await was.request({
-          path: pathOf(resourceId),
+          url: urlOf(resourceId),
           method: 'PUT',
           headers,
           body: new TextEncoder().encode(serialized),

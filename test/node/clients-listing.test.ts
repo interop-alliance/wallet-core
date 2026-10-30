@@ -13,7 +13,6 @@ import {
   currentAccountRecordSigners,
   currentAccountSigningKeys,
   listAccountClients,
-  type AccountLogPointer,
   type VerifiedAccountLog
 } from '../../src/clients/listing.js'
 import { accountLogPinId, verifyAccountLog } from '../../src/webvh/verifyLog.js'
@@ -30,7 +29,7 @@ const SPACE_ID = 'space-listing'
 const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
 
 /**
- * Provisions an account with one real client key set and returns its pointer
+ * Provisions an account with one real client key set and returns its DID
  * plus the published log text (what the world-readable fetch would serve).
  *
  * @returns {Promise<object>}
@@ -73,7 +72,7 @@ async function publishedAccount() {
   const client = parseEnrollmentRequest({ code: minted.code })
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     didWebKeys: {
       authentication: {
@@ -87,12 +86,7 @@ async function publishedAccount() {
     },
     updateKeys: minted.webvhUpdateKeys
   })
-  const pointer: AccountLogPointer = {
-    did,
-    spaceId: SPACE_ID,
-    host: WAS_URL
-  }
-  return { pointer, client, logText: currentLog! }
+  return { did, client, logText: currentLog! }
 }
 
 /**
@@ -153,11 +147,11 @@ afterEach(() => {
 
 describe('listAccountClients', () => {
   it('reads the log and the directory in parallel', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     const { release } = heldLogFetch(logText)
     let directoryRead = false
     const listing = listAccountClients({
-      pointer,
+      did,
       async readDirectoryEntries() {
         directoryRead = true
         return [
@@ -183,10 +177,10 @@ describe('listAccountClients', () => {
   })
 
   it('names only document clients, and only from wallet-client entries', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     heldLogFetch(logText).release()
     const rows = await listAccountClients({
-      pointer,
+      did,
       async readDirectoryEntries() {
         return [
           // An agent entry at the client's DID names nothing.
@@ -211,7 +205,7 @@ describe('listAccountClients', () => {
   })
 
   it('lists every document client unlabeled when the directory read throws', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     heldLogFetch(logText).release()
     for (const readDirectoryEntries of [
       async () => {
@@ -222,7 +216,7 @@ describe('listAccountClients', () => {
       }
     ]) {
       const rows = await listAccountClients({
-        pointer,
+        did,
         readDirectoryEntries: readDirectoryEntries as () => Promise<
           ConnectionEntry[]
         >
@@ -235,17 +229,17 @@ describe('listAccountClients', () => {
   })
 
   it('skips the fetch and verify when handed an already-verified log', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     const { release } = heldLogFetch(logText)
     release()
-    const verifiedLog: VerifiedAccountLog = await verifyAccountLog(pointer)
+    const verifiedLog: VerifiedAccountLog = await verifyAccountLog({ did })
 
     // Any further fetch is a failure: the verified log must be reused as is.
     vi.stubGlobal('fetch', async () => {
       throw new Error('the listing re-fetched the log')
     })
     const rows = await listAccountClients({
-      pointer,
+      did,
       verifiedLog,
       ownSigningKeyMultibase: client.signingKeyMultibase
     })
@@ -256,11 +250,11 @@ describe('listAccountClients', () => {
   })
 
   it('fetches and verifies by default (no verified log supplied)', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     const { release, started } = heldLogFetch(logText)
     release()
 
-    const rows = await listAccountClients({ pointer })
+    const rows = await listAccountClients({ did })
     expect(started()).toBe(true)
     expect(rows.map(row => row.signingKeyMultibase)).toEqual([
       client.signingKeyMultibase
@@ -270,24 +264,24 @@ describe('listAccountClients', () => {
 
 describe('currentAccountSigningKeys', () => {
   it('skips the fetch and verify when handed an already-verified log', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     const { release } = heldLogFetch(logText)
     release()
-    const verifiedLog = await verifyAccountLog(pointer)
+    const verifiedLog = await verifyAccountLog({ did })
 
     vi.stubGlobal('fetch', async () => {
       throw new Error('the key-set read re-fetched the log')
     })
-    const keys = await currentAccountSigningKeys({ pointer, verifiedLog })
+    const keys = await currentAccountSigningKeys({ did, verifiedLog })
     expect([...keys]).toEqual([client.signingKeyMultibase])
   })
 
   it('fetches and verifies by default (no verified log supplied)', async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     const { release, started } = heldLogFetch(logText)
     release()
 
-    const keys = await currentAccountSigningKeys({ pointer })
+    const keys = await currentAccountSigningKeys({ did })
     expect(started()).toBe(true)
     expect([...keys]).toEqual([client.signingKeyMultibase])
   })
@@ -295,15 +289,15 @@ describe('currentAccountSigningKeys', () => {
 
 describe('currentAccountRecordSigners', () => {
   it("is the enrolled clients' key set on an account with no ladder VM", async () => {
-    const { pointer, client, logText } = await publishedAccount()
+    const { did, client, logText } = await publishedAccount()
     const { release } = heldLogFetch(logText)
     release()
-    const verifiedLog = await verifyAccountLog(pointer)
+    const verifiedLog = await verifyAccountLog({ did })
 
     vi.stubGlobal('fetch', async () => {
       throw new Error('the record-signer read re-fetched the log')
     })
-    const keys = await currentAccountRecordSigners({ pointer, verifiedLog })
+    const keys = await currentAccountRecordSigners({ did, verifiedLog })
     expect([...keys]).toEqual([client.signingKeyMultibase])
   })
 })

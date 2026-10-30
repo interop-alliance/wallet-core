@@ -182,7 +182,7 @@ async function tornRoster() {
   return { own, ownKak, strandedKak, userKey, store, doc, descriptor }
 }
 
-const pointer = { did: 'did:webvh:x', spaceId: 'urn:uuid:space', host: 'h' }
+const did = 'did:webvh:x'
 
 // The suite's warn assertions and mute-only spies both ride one injected
 // capture logger for the file: vitest isolates modules per FILE, not per
@@ -257,7 +257,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store,
       userKey,
       descriptor,
@@ -276,7 +276,7 @@ describe('convergeUserKeyRosterToAccount', () => {
 
     // Idempotent across starts: the next sweep finds a sealed log.
     const again = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store,
       userKey,
       descriptor,
@@ -308,7 +308,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     }
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store: counted,
       userKey,
       descriptor: start.descriptor,
@@ -330,7 +330,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     const adopted: Array<{ userKey: { id: string } }> = []
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store,
       userKey,
       descriptor,
@@ -367,7 +367,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store,
       userKey,
       descriptor: initial,
@@ -408,7 +408,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     }
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store: failing,
       userKey,
       descriptor,
@@ -443,7 +443,7 @@ describe('convergeUserKeyRosterToAccount', () => {
 
     await expect(
       convergeUserKeyRosterToAccount({
-        pointer,
+        did,
         store,
         userKey,
         descriptor,
@@ -463,7 +463,7 @@ describe('convergeUserKeyRosterToAccount', () => {
 
     await expect(
       convergeUserKeyRosterToAccount({
-        pointer,
+        did,
         store,
         userKey,
         descriptor,
@@ -480,7 +480,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     )
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store,
       userKey,
       descriptor,
@@ -507,7 +507,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     )
 
     const result = await convergeUserKeyRosterToAccount({
-      pointer,
+      did,
       store,
       userKey,
       descriptor,
@@ -534,7 +534,7 @@ describe('convergeUserKeyRosterToAccount', () => {
 
     await expect(
       convergeUserKeyRosterToAccount({
-        pointer,
+        did,
         store,
         userKey,
         descriptor,

@@ -5,7 +5,7 @@
  * A user-facing error whose `message` is safe to show verbatim. Carries the name
  * `'HumanReadableError'` so an app that classifies errors by `name` (rather than
  * by `instanceof`, which fails across module realms) treats a wallet-core error
- * the same as its own. Thrown by `parseWasLinkPayload` for every malformed /
+ * the same as its own. Thrown by `parsePwsLinkPayload` for every malformed /
  * wrong-version / non-link input.
  */
 export class HumanReadableError extends Error {

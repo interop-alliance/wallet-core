@@ -254,8 +254,7 @@ describe('recoveryClientFromCode', () => {
 describe('the recovery record codec', () => {
   const pointer = {
     did: 'did:webvh:z6MkScid:localhost%3A8080:space:space-recovery:id',
-    spaceId: SPACE_ID,
-    host: WAS_URL
+    spaceUrl: `${WAS_URL}/space/${SPACE_ID}/`
   }
   const delegation = {
     id: 'urn:zcap:delegated:example',
@@ -475,8 +474,7 @@ describe('the recovery record codec', () => {
       controller: 'did:key:z6MkAttackerController',
       pointer: {
         did: 'did:webvh:z6MkAttackerScid:evil.example:space:stolen:id',
-        spaceId: 'stolen',
-        host: 'https://evil.example'
+        spaceUrl: 'https://evil.example/space/stolen/'
       },
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
@@ -576,7 +574,7 @@ async function provisionedLog(options?: {
   const updateKeys = options?.updateKeys ?? mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     didWebKeys: {
       authentication: {
@@ -4522,7 +4520,7 @@ describe("the recovery code's ladder branch", () => {
       })
     }
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement: credentialKeyAgreement

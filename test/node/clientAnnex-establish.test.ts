@@ -25,6 +25,7 @@ import { captureLogger } from '@interop/logger'
 import { readLogFromString } from '@interop/did-method-webvh'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import { PreconditionFailedError } from '@interop/was-client'
+import { spaceIdOfUrl, spaceUrlById } from '@interop/was-client/paths'
 import { initRecipients } from '@interop/was-client/edv/core'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
@@ -76,6 +77,7 @@ import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'account-space-establish'
+const SPACE_URL = `${WAS_URL}/space/${SPACE_ID}/`
 
 /**
  * The encrypted roster collections -- the ones epoch[0] lands on.
@@ -201,6 +203,7 @@ function multiFakeWas() {
       }
     }
     return {
+      url: spaceUrlById({ baseServerUrl: WAS_URL, spaceId }),
       describe: async () => {
         if (masked()) {
           return null
@@ -429,10 +432,12 @@ function multiFakeWas() {
     }
   }
   const was = {
-    space: (spaceId: string) => spaceHandle(spaceId, false)
+    space: (spaceId: string) => spaceHandle(spaceId, false),
+    spaceAt: (spaceUrl: string) => spaceHandle(spaceIdOfUrl(spaceUrl), false)
   } as unknown as WasClient
   const privilegedWas = {
-    space: (spaceId: string) => spaceHandle(spaceId, true)
+    space: (spaceId: string) => spaceHandle(spaceId, true),
+    spaceAt: (spaceUrl: string) => spaceHandle(spaceIdOfUrl(spaceUrl), true)
   } as unknown as WasClient
   return {
     was,
@@ -555,7 +560,7 @@ function recordingBindRecord({
 }: { failRebindOnce?: boolean } = {}) {
   const calls: Array<{
     controller: string
-    pointer: { spaceId: string; host: string; did?: string }
+    pointer: { spaceUrl: string; did?: string }
     delegation: IZcap
     delegatedClients?: IZcap
     delegateManagementTo?: string
@@ -607,7 +612,7 @@ async function establishWorld({
     > = {}
   ) =>
     establishCredentialAnchoredAccount({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       standing: credential.standing,
@@ -691,12 +696,11 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
     // its stamp advancing past the first bind's.
     expect(world.bind.calls).toHaveLength(2)
     const [first, rebind] = world.bind.calls
-    expect(first!.pointer).toEqual({ spaceId: SPACE_ID, host: WAS_URL })
+    expect(first!.pointer).toEqual({ spaceUrl: SPACE_URL })
     expect(first!.delegatedClients).toBeUndefined()
     expect(first!.delegateManagementTo).toBeUndefined()
     expect(rebind!.pointer).toEqual({
-      spaceId: SPACE_ID,
-      host: WAS_URL,
+      spaceUrl: SPACE_URL,
       did: result.did
     })
     expect(rebind!.delegatedClients).toBeDefined()
@@ -1174,7 +1178,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     })
     const sibling = await mintDelegatedClientsDelegation({
       zcapClient: ladderClient,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       clientAnnexSpaceId: strandedSpaceId!,
       controller: world.credential.standing.clientDid
     })
@@ -1248,7 +1252,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     const loserBind = recordingBindRecord()
     await expect(
       establishCredentialAnchoredAccount({
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: loser.ladderSeed,
         standing: loser.standing,
@@ -1645,7 +1649,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
         doc: doc as never,
         log: view as never
       },
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       ladderSeed: world.credential.ladderSeed,
       // Never signs: the pointed arm writes nothing.
       signer: {
@@ -1705,14 +1709,14 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
     })
     const sibling = await mintDelegatedClientsDelegation({
       zcapClient: ladderClient,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       clientAnnexSpaceId: strandedSpaceId!,
       controller: world.credential.standing.clientDid
     })
 
     const outcome = await ensurePointedClientAnnexGeneration({
       account: published!,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       ladderSeed: world.credential.ladderSeed,
       signer: { kind: 'ladder' },
       was: world.server.was,
@@ -1720,7 +1724,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
         accountDid,
         ladderSeed: world.credential.ladderSeed,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID
       }),
       idStore: world.account.idStore,
@@ -1760,7 +1764,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     return mendCredentialAnchoredAccount({
       account: {
         controller: world.credential.standing.clientDid,
-        pointer: { spaceId: SPACE_ID, host: WAS_URL },
+        pointer: { spaceUrl: SPACE_URL },
         ladderSeed: world.credential.ladderSeed
       },
       standing: world.credential.standing,
@@ -1805,7 +1809,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       mendWith(world, {
         account: {
           controller: world.credential.standing.clientDid,
-          pointer: { spaceId: SPACE_ID, host: WAS_URL, did: established.did },
+          pointer: { spaceUrl: SPACE_URL, did: established.did },
           ladderSeed: world.credential.ladderSeed
         },
         ...overrides
@@ -1914,7 +1918,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     const report = await mendCredentialAnchoredAccount({
       account: {
         controller: loser.standing.clientDid,
-        pointer: { spaceId: SPACE_ID, host: WAS_URL },
+        pointer: { spaceUrl: SPACE_URL },
         ladderSeed: loser.ladderSeed
       },
       standing: loser.standing,
@@ -1945,7 +1949,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     const report = await mendWith(world, {
       account: {
         controller: world.credential.standing.clientDid,
-        pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+        pointer: { spaceUrl: SPACE_URL, did },
         ladderSeed: world.credential.ladderSeed
       },
       delegatedRead: {
@@ -1994,7 +1998,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       mendWith(world, {
         account: {
           controller: world.credential.standing.clientDid,
-          pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+          pointer: { spaceUrl: SPACE_URL, did },
           ladderSeed: world.credential.ladderSeed
         },
         delegatedRead: {
@@ -2018,7 +2022,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     const report = await mendWith(world, {
       account: {
         controller: world.credential.standing.clientDid,
-        pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+        pointer: { spaceUrl: SPACE_URL, did },
         ladderSeed: world.credential.ladderSeed
       }
     })
@@ -2522,7 +2526,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     const report = await mendWith(world, {
       account: {
         controller: world.credential.standing.clientDid,
-        pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+        pointer: { spaceUrl: SPACE_URL, did },
         ladderSeed: world.credential.ladderSeed
       },
       invocation,
@@ -2818,7 +2822,7 @@ describe('establishCredentialAnchoredAccount (ceremony events)', () => {
     const loser = await establishCredential()
     await expect(
       establishCredentialAnchoredAccount({
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: loser.ladderSeed,
         standing: loser.standing,

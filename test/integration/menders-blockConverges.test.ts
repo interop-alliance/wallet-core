@@ -37,7 +37,7 @@
  * `connections` entries, and no account shape writes one.
  */
 import { WasClient } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
+import { spaceUrlById } from '@interop/was-client/paths'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -249,9 +249,9 @@ function enrolledRosterStore({
   account: Account
   pinStore: ReturnType<typeof memoryResourceLogPinStore>
 }) {
-  const { serverUrl, spaceId, accountDid, client } = account
+  const { baseServerUrl, spaceId, accountDid, client } = account
   return userKeyRosterDescriptorStore({
-    storageServerUrl: serverUrl,
+    baseServerUrl,
     zcapClient: client.zcapClient,
     spaceId,
     resolveController: async () =>
@@ -260,8 +260,6 @@ function enrolledRosterStore({
         log: (
           await verifyAccountLog({
             did: accountDid,
-            spaceId,
-            host: serverUrl,
             pinStore
           })
         ).log
@@ -287,9 +285,9 @@ async function transientRosterStore({
   account: EstablishedAccount
   visit: Visit
 }) {
-  const { serverUrl, spaceId, accountDid, ladderSeed } = account
+  const { baseServerUrl, spaceId, accountDid, ladderSeed } = account
   return userKeyRosterDescriptorStore({
-    storageServerUrl: serverUrl,
+    baseServerUrl,
     zcapClient: visit.zcapClient,
     spaceId,
     resolveController: async () =>
@@ -298,8 +296,6 @@ async function transientRosterStore({
         log: (
           await verifyAccountLog({
             did: accountDid,
-            spaceId,
-            host: serverUrl,
             pinStore: visit.pinStore
           })
         ).log
@@ -439,7 +435,7 @@ const PROMOTION: Registration<Deps, CeremonyId> = {
   async converge({ remembered: { account } }) {
     const promotion = await ensurePromotedSpaceController({
       was: new WasClient({
-        serverUrl: spacesUrl({ baseUrl: account.serverUrl }),
+        baseServerUrl: account.baseServerUrl,
         zcapClient: account.client.zcapClient
       }),
       spaceId: account.spaceId,
@@ -469,7 +465,7 @@ const ROSTER_SWEEP: Registration<Deps, CeremonyId> = {
   ],
   async converge({ remembered }) {
     const { account, pinStore: rememberedPins } = remembered
-    const { serverUrl, spaceId, accountDid, client } = account
+    const { baseServerUrl, spaceId, accountDid, client } = account
     const store = enrolledRosterStore({ account, pinStore: rememberedPins })
     const clientKeyAgreementKey = client.agents
       .keyAgreementKey as IKeyAgreementKey
@@ -491,7 +487,7 @@ const ROSTER_SWEEP: Registration<Deps, CeremonyId> = {
       throw new Error('test: the roster read resolved nothing')
     }
     const converged = await convergeUserKeyRosterToAccount({
-      pointer: { did: accountDid, spaceId, host: serverUrl },
+      did: accountDid,
       store,
       userKey: read.userKey,
       descriptor: read.descriptor,
@@ -504,7 +500,7 @@ const ROSTER_SWEEP: Registration<Deps, CeremonyId> = {
     const fanOut = await cascadeCollectionsToUserKey({
       collectionIds: COLLECTION_IDS,
       storeFor: accountCollectionStores({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: client.zcapClient,
         spaceId,
         did: accountDid,
@@ -544,16 +540,14 @@ const READINESS: Registration<Deps, CeremonyId> = {
     'generation-delegation-is-current'
   ],
   async converge({ transient }) {
-    const { serverUrl, spaceId, accountDid, ladderSeed, standing } =
+    const { baseServerUrl, spaceId, accountDid, ladderSeed, standing } =
       transient.account
     const verified = await verifyAccountLog({
       did: accountDid,
-      spaceId,
-      host: serverUrl,
       pinStore: transient.pinStore
     })
     const ensured = await ensureCredentialClientAnnexGeneration({
-      wasServerUrl: serverUrl,
+      baseServerUrl,
       spaceId,
       account: { did: accountDid, doc: verified.doc, log: verified.log },
       ladderSeed,
@@ -563,13 +557,13 @@ const READINESS: Registration<Deps, CeremonyId> = {
       },
       bootstrapWasFor: ({ keyAgent }) =>
         new WasClient({
-          serverUrl: spacesUrl({ baseUrl: serverUrl }),
+          baseServerUrl,
           zcapClient: didKeyZcapClient({ keyAgent })
         }),
       delegation: transient.account.bridge,
       idStoreFor: ({ delegation }) =>
         delegatedWebvhLogStore({
-          host: serverUrl,
+          baseServerUrl,
           spaceId,
           collectionId: ID_COLLECTION.id,
           delegation,
@@ -627,12 +621,12 @@ const MEND: Registration<Deps, CeremonyId> = {
   ],
   async converge({ transient }) {
     const { account } = transient
-    const { serverUrl, spaceId, accountDid, ladderSeed, standing } = account
+    const { baseServerUrl, spaceId, accountDid, ladderSeed, standing } = account
     const visit = await currentVisit(transient)
     const bootstrapAgent = await ladderVmAgent({ ladderSeed })
     const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
     const bootstrapWas = new WasClient({
-      serverUrl: spacesUrl({ baseUrl: serverUrl }),
+      baseServerUrl,
       zcapClient: bootstrapZcap
     })
     // The ladder VM's key signs both the bootstrap and the visit's appends.
@@ -640,7 +634,10 @@ const MEND: Registration<Deps, CeremonyId> = {
     const report = await mendCredentialAnchoredAccount({
       account: {
         controller: accountDid,
-        pointer: { did: accountDid, spaceId, host: serverUrl },
+        pointer: {
+          did: accountDid,
+          spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
+        },
         ladderSeed
       },
       standing: {
@@ -654,7 +651,7 @@ const MEND: Registration<Deps, CeremonyId> = {
       },
       rosterStoreFor: ({ did, log }) =>
         userKeyRosterDescriptorStore({
-          storageServerUrl: serverUrl,
+          baseServerUrl,
           zcapClient: bootstrapZcap,
           spaceId,
           resolveController: async () =>
@@ -664,7 +661,7 @@ const MEND: Registration<Deps, CeremonyId> = {
         }),
       collectionStoreFor: ({ did, log }) =>
         accountCollectionStores({
-          storageServerUrl: serverUrl,
+          baseServerUrl,
           zcapClient: bootstrapZcap,
           spaceId,
           did,
@@ -682,7 +679,7 @@ const MEND: Registration<Deps, CeremonyId> = {
       delegatedClients: account.sibling,
       invocation: {
         was: new WasClient({
-          serverUrl: spacesUrl({ baseUrl: serverUrl }),
+          baseServerUrl,
           zcapClient: visit.zcapClient
         }),
         zcapClient: visit.zcapClient,
@@ -690,7 +687,7 @@ const MEND: Registration<Deps, CeremonyId> = {
       },
       rosterStore: await transientRosterStore({ account, visit }),
       collectionStore: accountCollectionStores({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: visit.zcapClient,
         spaceId,
         did: accountDid,
@@ -734,7 +731,7 @@ const TRANSIENT_FAN_OUT: Registration<Deps, CeremonyId> = {
   ],
   async converge({ transient }) {
     const { account } = transient
-    const { serverUrl, spaceId, accountDid, ladderSeed, standing } = account
+    const { baseServerUrl, spaceId, accountDid, ladderSeed, standing } = account
     const visit = await currentVisit(transient)
     const clientKeyAgreementKey = standing.agents
       .keyAgreementKey as IKeyAgreementKey
@@ -748,7 +745,7 @@ const TRANSIENT_FAN_OUT: Registration<Deps, CeremonyId> = {
     const fanOut = await cascadeCollectionsToUserKey({
       collectionIds: COLLECTION_IDS,
       storeFor: accountCollectionStores({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: visit.zcapClient,
         spaceId,
         did: accountDid,
@@ -810,10 +807,10 @@ describe('a mender block run over a torn account, then re-run', () => {
     const previous = setLogger(quiet.logger)
     restoreLogger = () => setLogger(previous)
     const rememberedAccount = await buildEnrolledClientAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
     const transientAccount = await buildPassphraseAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
     deps = {
       remembered: {
@@ -951,20 +948,20 @@ describe('a mender block run over a torn account, then re-run', () => {
   })
 
   it('the transient block re-mints a deleted annex Space, then writes nothing', async () => {
-    const { serverUrl, accountDid, annexSpaceId, ladderSeed, standing } =
+    const { baseServerUrl, accountDid, annexSpaceId, ladderSeed, standing } =
       deps.transient.account
     // The tear: the pointed annex Space, deleted by the standing client
     // through a DELETE-only child of its root the ladder VM delegates.
     const capability = await mintSpaceRootVerbCapability({
       zcapClient: await ladderVmZcapClient({ accountDid, ladderSeed }),
-      storageServerUrl: serverUrl,
+      baseServerUrl,
       spaceId: annexSpaceId,
       verb: 'DELETE',
       controller: standing.clientDid
     })
     expect(
       await deleteSpaceWithCapability({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: standing.agents.zcapClient,
         spaceId: annexSpaceId,
         capability

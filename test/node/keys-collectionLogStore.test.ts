@@ -32,6 +32,7 @@ import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import { accountWithUnchangedEdit } from './fixtures/resourceLog.js'
 
 const SPACE_ID = 'space-under-test'
+const SPACE_URL = `http://localhost:8080/space/${SPACE_ID}/`
 const COLLECTION_ID = 'private-credentials'
 
 /**
@@ -50,7 +51,7 @@ function fakeCollection() {
   const etag = () => `"v${state.version}"`
   const collection = {
     id: COLLECTION_ID,
-    spaceId: SPACE_ID,
+    spaceUrl: SPACE_URL,
     getHistoryLog: async () =>
       state.body === undefined ? null : { body: state.body, etag: etag() },
     putHistoryLog: async (

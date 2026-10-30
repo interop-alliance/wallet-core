@@ -1,5 +1,58 @@
 # @interop/wallet-core Changelog
 
+## 0.109.0 - TBD
+
+### Changed
+
+- Breaking: every WAS client is built from a base server URL, following
+  was-client's fixed server layout (`{base}service`, `{base}spaces/`,
+  `{base}space/{id}/`). The server parameter is named `baseServerUrl` in every
+  signature (it was `wasServerUrl`, `storageServerUrl`, `host`, and `serverUrl`
+  on the testing builder); its meaning is unchanged. The `./paths` builders that
+  was-client 0.100 removed are no longer used.
+- Breaking: `didWebvhControllerTemplate` takes `baseServerUrl` and encodes its
+  path as prefix segments, so the account DID is
+  `did:webvh:{SCID}:<host>:<prefix...>:space:<spaceId>:<collectionId>` and is
+  self-locating under any mount. New `didWebvhLogLocation({ did })` is the
+  inverse: the log URL, the Space URL, the Space id, the collection id, and the
+  base server URL, read off the DID alone. New `didWebvhLogPaths`.
+- Breaking: `verifyAccountLog` takes `{ did }`, `discoverAccountLog` takes
+  `{ spaceUrl }`, and `accountControllerResolver` takes `{ did }`; `spaceId` and
+  `host` are gone. The log is fetched at the DID's own log URL, and the location
+  check compares the fetched URL against the DID's.
+- Breaking: `AccountLogPointer` is gone. `listAccountClients`,
+  `currentAccountSigningKeys`, `currentAccountRecordSigners`, and
+  `convergeUserKeyRosterToAccount` take `did` in its place. The keyring and
+  unlock account pointer is `{ did?, spaceUrl }`. The DID-less interim record of
+  the credential-anchored establishment keeps its shape; a caller needing the
+  base server URL derives it from the DID or through `baseServerUrlOf`.
+- Breaking: the unlock binding MAC input is
+  `[context, controller, did or '', spaceUrl, ladderSeed or '']` under the
+  context `freewallet/unlock/binding/v3`.
+- Breaking: the QR hand-off payload is
+  `{ v: 1, t: 'pws-link', baseServerUrl, secret }`; `PwsLinkPayload` carries
+  `baseServerUrl` and `buildPwsLinkPayload` takes it. The validation rule is
+  unchanged. The link identifiers are renamed to the pws-link names
+  (`space/pwsLink.ts`, `isPwsLinkPayload`, `parsePwsLinkPayload`,
+  `encodeWasLinkSecret` to `encodePwsLinkSecret`, `PWS_LINK_TYPE`).
+- Breaking: `delegatedWebvhLogStore`, `publicCredentialUrl`, `spaceVerbTarget`,
+  `mintSpaceRootVerbCapability`, the unlock Space helpers,
+  `deleteSpaceWithCapability`, and the user key roster and collection store
+  builders take `baseServerUrl`.
+- Breaking: `ClientAnnexDidParts.host` is replaced by `spaceLocation`, the DID's
+  colon-joined segments between the SCID and the generation id, and
+  `delegatedClientsSpaceHistory` items carry `baseServerUrl` in place of `host`.
+- The testing builder's account shapes return `baseServerUrl` in place of
+  `serverUrl`.
+- `parseRecordPointer` refuses a pointer whose `spaceUrl` is not a Space URL
+  (was-client's `canonicalSpaceUrl` rule) at parse time, instead of letting the
+  first ceremony that derives the Space id fail on it.
+- `delegatedClientsSpaceHistory` refuses, with the location reader's own error,
+  an annex DID that parses but whose location cannot be read off it; it was
+  skipped, which would leave that Space unreported to a deletion.
+- `@interop/did-method-webvh` `>=5.18.0`, for the root-exported
+  `normalizeCreateDidAddress` the template is built with.
+
 ## 0.108.0 - 2026-10-27
 
 ### Added

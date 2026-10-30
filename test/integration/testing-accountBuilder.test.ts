@@ -8,7 +8,6 @@
  * ceremonies really leave.
  */
 import { WasClient } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { ladderVmAgent } from '../../src/clientAnnex/index.js'
@@ -48,9 +47,7 @@ import {
  */
 async function accountDoc({ account }: { account: EstablishedAccount }) {
   const { doc } = await verifyAccountLog({
-    did: account.accountDid,
-    spaceId: account.spaceId,
-    host: account.serverUrl
+    did: account.accountDid
   })
   return doc
 }
@@ -65,15 +62,15 @@ async function accountDoc({ account }: { account: EstablishedAccount }) {
  */
 async function rosterDescriptor({ account }: { account: EstablishedAccount }) {
   const visit = await transientVisit({ account })
-  const { accountDid: did, spaceId, serverUrl: host } = account
+  const { accountDid: did, spaceId, baseServerUrl } = account
   const read = await userKeyRosterDescriptorStore({
-    storageServerUrl: host,
+    baseServerUrl,
     zcapClient: visit.zcapClient,
     spaceId,
     resolveController: async () =>
       webvhResourceLogController({
         did,
-        log: (await verifyAccountLog({ did, spaceId, host })).log
+        log: (await verifyAccountLog({ did })).log
       }),
     pinStore: visit.pinStore,
     signer: userKeyRosterLogSigner({
@@ -100,7 +97,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('builds a passphrase account: one low-entropy credential, no enrolled client', async () => {
     const account = await buildPassphraseAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
     const doc = await accountDoc({ account })
 
@@ -129,7 +126,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('adds a second standing credential beside the first', async () => {
     const account = await buildSecondCredentialAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
     const doc = await accountDoc({ account })
 
@@ -170,7 +167,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('issues a recovery code: a verbatim key, its wrap, and its ladder VM', async () => {
     const account = await buildRecoveryCodeAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
     const { client, recoveryKid } = account.recovery
     const doc = await accountDoc({ account })
@@ -197,7 +194,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('self-enrolls a client that holds the account authority', async () => {
     const account = await buildEnrolledClientAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
     const { client } = account
     const doc = await accountDoc({ account })
@@ -218,7 +215,7 @@ describe('the ./testing account builder against the real server', () => {
     // The enrolled client root-invokes as `<accountDid>#<signing key>`: a
     // write into the account Space only the did:webvh controller may make.
     const was = new WasClient({
-      serverUrl: spacesUrl({ baseUrl: account.serverUrl }),
+      baseServerUrl: account.baseServerUrl,
       zcapClient: client.zcapClient
     })
     await was

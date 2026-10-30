@@ -677,7 +677,7 @@ describe('retireUnlockCredential chain-head pin', () => {
     const founder = await mintedClient()
     await ensureDidWebvh({
       idStore: accountStore,
-      wasServerUrl: 'http://localhost:8080',
+      baseServerUrl: 'http://localhost:8080',
       spaceId: ACCOUNT_SPACE_ID,
       clientKeys: {
         signingKeyMultibase: founder.keys.signingKeyMultibase,

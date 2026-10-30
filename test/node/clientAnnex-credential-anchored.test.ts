@@ -24,6 +24,7 @@ import { setLogger } from '../../src/log.js'
 import { readLogFromString } from '@interop/did-method-webvh'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import { PreconditionFailedError } from '@interop/was-client'
+import { spaceIdOfUrl, spaceUrlById } from '@interop/was-client/paths'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 
 import {
@@ -83,106 +84,105 @@ function fakeWas() {
     string,
     { description: StoredDescription; version: number; isPublic: boolean }
   >()
-  const was = {
-    space: (spaceId: string) => {
-      expect(spaceId).toBe(SPACE_ID)
-      return {
-        describe: async () =>
-          spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
-        describeWithEtag: async () =>
-          spaceDescription
-            ? {
-                description: { id: SPACE_ID, ...spaceDescription },
-                etag: '"1"'
-              }
-            : null,
-        configure: async (options: { name?: string; controller?: string }) => {
-          spaceDescription = { ...options }
-          return { id: SPACE_ID, type: ['Space'], ...options }
+  const spaceHandle = (spaceId: string) => {
+    expect(spaceId).toBe(SPACE_ID)
+    return {
+      url: spaceUrlById({ baseServerUrl: WAS_URL, spaceId }),
+      describe: async () =>
+        spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
+      describeWithEtag: async () =>
+        spaceDescription
+          ? {
+              description: { id: SPACE_ID, ...spaceDescription },
+              etag: '"1"'
+            }
+          : null,
+      configure: async (options: { name?: string; controller?: string }) => {
+        spaceDescription = { ...options }
+        return { id: SPACE_ID, type: ['Space'], ...options }
+      },
+      // The guarded create `ensureSpace` runs on an absent Space.
+      replaceDescription: async (options: {
+        name?: string
+        controller?: string
+      }) => {
+        spaceDescription = { ...options }
+        return {
+          description: { id: SPACE_ID, type: ['Space'], ...options },
+          etag: '"1"'
+        }
+      },
+      collection: (collectionId: string) => ({
+        describe: async () => {
+          const entry = collections.get(collectionId)
+          return entry ? structuredClone(entry.description) : null
         },
-        // The guarded create `ensureSpace` runs on an absent Space.
-        replaceDescription: async (options: {
+        configure: async (options: {
           name?: string
-          controller?: string
+          encryption?: CollectionEncryption
         }) => {
-          spaceDescription = { ...options }
-          return {
-            description: { id: SPACE_ID, type: ['Space'], ...options },
-            etag: '"1"'
+          const entry = collections.get(collectionId)
+          const description: StoredDescription = {
+            name: options.name,
+            ...(options.encryption ? { encryption: options.encryption } : {})
+          }
+          if (entry) {
+            entry.description = description
+            entry.version++
+          } else {
+            collections.set(collectionId, {
+              description,
+              version: 0,
+              isPublic: false
+            })
           }
         },
-        collection: (collectionId: string) => ({
-          describe: async () => {
-            const entry = collections.get(collectionId)
-            return entry ? structuredClone(entry.description) : null
-          },
-          configure: async (options: {
-            name?: string
-            encryption?: CollectionEncryption
-          }) => {
-            const entry = collections.get(collectionId)
-            const description: StoredDescription = {
-              name: options.name,
-              ...(options.encryption ? { encryption: options.encryption } : {})
-            }
-            if (entry) {
-              entry.description = description
-              entry.version++
-            } else {
-              collections.set(collectionId, {
-                description,
-                version: 0,
-                isPublic: false
-              })
-            }
-          },
-          isPublic: async () =>
-            collections.get(collectionId)?.isPublic ?? false,
-          setPublic: async () => {
-            const entry = collections.get(collectionId)
-            if (entry) {
-              entry.isPublic = true
-            }
-          },
-          describeWithEtag: async () => {
-            const entry = collections.get(collectionId)
-            return entry
-              ? {
-                  description: structuredClone(entry.description),
-                  etag: `v${entry.version}`
-                }
-              : null
-          },
-          replaceDescription: async (
-            description: StoredDescription,
-            {
-              ifMatch,
-              ifNoneMatch
-            }: { ifMatch?: string; ifNoneMatch?: boolean }
-          ) => {
-            const entry = collections.get(collectionId)
-            if (ifNoneMatch) {
-              // The guarded create: refused over an existing collection.
-              if (entry) {
-                throw new PreconditionFailedError('collection exists')
-              }
-
-              collections.set(collectionId, {
-                description: structuredClone(description),
-                version: 0,
-                isPublic: false
-              })
-              return { description: structuredClone(description), etag: 'v0' }
-            }
-            if (!entry || ifMatch !== `v${entry.version}`) {
-              throw new PreconditionFailedError('stale description etag')
-            }
-            entry.description = structuredClone(description)
-            entry.version++
+        isPublic: async () => collections.get(collectionId)?.isPublic ?? false,
+        setPublic: async () => {
+          const entry = collections.get(collectionId)
+          if (entry) {
+            entry.isPublic = true
           }
-        })
-      }
+        },
+        describeWithEtag: async () => {
+          const entry = collections.get(collectionId)
+          return entry
+            ? {
+                description: structuredClone(entry.description),
+                etag: `v${entry.version}`
+              }
+            : null
+        },
+        replaceDescription: async (
+          description: StoredDescription,
+          { ifMatch, ifNoneMatch }: { ifMatch?: string; ifNoneMatch?: boolean }
+        ) => {
+          const entry = collections.get(collectionId)
+          if (ifNoneMatch) {
+            // The guarded create: refused over an existing collection.
+            if (entry) {
+              throw new PreconditionFailedError('collection exists')
+            }
+
+            collections.set(collectionId, {
+              description: structuredClone(description),
+              version: 0,
+              isPublic: false
+            })
+            return { description: structuredClone(description), etag: 'v0' }
+          }
+          if (!entry || ifMatch !== `v${entry.version}`) {
+            throw new PreconditionFailedError('stale description etag')
+          }
+          entry.description = structuredClone(description)
+          entry.version++
+        }
+      })
     }
+  }
+  const was = {
+    space: spaceHandle,
+    spaceAt: (spaceUrl: string) => spaceHandle(spaceIdOfUrl(spaceUrl))
   } as unknown as WasClient
   return {
     was,
@@ -351,7 +351,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: credential.keyAgreement,
@@ -438,7 +438,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: credential.keyAgreement,
@@ -470,7 +470,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const run = () =>
       ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,
@@ -515,7 +515,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const run = (credential: Awaited<ReturnType<typeof mintingCredential>>) =>
       ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,
@@ -549,7 +549,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const run = (userKey: typeof first) =>
       ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,
@@ -624,7 +624,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const run = () =>
       ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,
@@ -678,7 +678,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: credential.keyAgreement,
@@ -749,7 +749,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     // the rewrite re-reads and lands on the served ETag.
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: credential.keyAgreement,
@@ -823,7 +823,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     await expect(
       ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,
@@ -841,7 +841,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     // into the map the torn run left, under the served ETag.
     const rerun = await ensureCredentialAnchoredAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: credential.keyAgreement,
@@ -870,7 +870,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: credential.keyAgreement,
@@ -911,7 +911,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     ) =>
       ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,
@@ -954,7 +954,7 @@ describe('ensureCredentialAnchoredAccountGenesis (ceremony events)', () => {
 
       await ensureCredentialAnchoredAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
         keyAgreement: credential.keyAgreement,

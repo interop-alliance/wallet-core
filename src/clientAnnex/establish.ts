@@ -116,6 +116,7 @@ import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { didKeyZcapClient } from '../webvh/zcap.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
+import { baseServerUrlOf, spaceUrlById } from '@interop/was-client/paths'
 import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import {
   delegateLogWrite,
@@ -277,7 +278,7 @@ export type CredentialAnchoredBindRecordHook = (options: {
  * @param options {object}
  * @param options.account {object}   the VERIFIED account log view
  *   (`{ did, doc, log }`; never re-fetched here)
- * @param options.wasServerUrl {string}   the account pointer's host
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.was {WasClient}   the bootstrap storage client (the ladder
  *   VM's bare did:key), used by the fresh-mint arm
@@ -325,7 +326,7 @@ export type CredentialAnchoredBindRecordHook = (options: {
  */
 export async function ensurePointedClientAnnexGeneration({
   account,
-  wasServerUrl,
+  baseServerUrl,
   ladderSeed,
   was,
   mintController,
@@ -339,7 +340,7 @@ export async function ensurePointedClientAnnexGeneration({
   now
 }: {
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
-  wasServerUrl: string
+  baseServerUrl: string
   ladderSeed: Uint8Array
   was: WasClient
   mintController: string
@@ -436,7 +437,7 @@ export async function ensurePointedClientAnnexGeneration({
   if (annexSpaceId !== undefined && invocation !== undefined) {
     const generation = await mintPointedClientAnnexGeneration({
       was: invocation.was,
-      wasServerUrl,
+      baseServerUrl,
       spaceId: annexSpaceId,
       controller: account.did,
       ladderSeed,
@@ -460,7 +461,7 @@ export async function ensurePointedClientAnnexGeneration({
   }) => {
     const generation = await mintPointedClientAnnexGeneration({
       was,
-      wasServerUrl,
+      baseServerUrl,
       spaceId,
       controller: mintController,
       ladderSeed,
@@ -557,7 +558,7 @@ function authorizationRefusal(err: unknown): boolean {
  * re-run from durable state alone; a torn run converges by running again.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}   the account pointer's host
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.spaceId {string}   the ACCOUNT Space's id, minted by the
  *   caller and carried in the account pointer (never minted here)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed --
@@ -644,7 +645,7 @@ function authorizationRefusal(err: unknown): boolean {
  *   next login's heal re-runs the establishment
  */
 export function establishCredentialAnchoredAccount(options: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   ladderSeed: Uint8Array
   standing: {
@@ -782,7 +783,7 @@ const CREDENTIAL_ANCHORED_ESTABLISHMENT_REFUSALS = [
  * @returns {Promise<CredentialAnchoredEstablishment>}
  */
 async function establishCredentialAnchoredAccountChecked({
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   ladderSeed,
   standing,
@@ -810,7 +811,9 @@ async function establishCredentialAnchoredAccountChecked({
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
   const bootstrapWas = bootstrapWasFor({ keyAgent: bootstrapAgent })
-  const pointer: AccountPointer = { spaceId, host: wasServerUrl }
+  const pointer: AccountPointer = {
+    spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
+  }
   const failed: CredentialAnchoredEstablishment['failed'] = []
 
   // The hash-commitment rule, failing safe: a KDF-derived public key
@@ -853,7 +856,7 @@ async function establishCredentialAnchoredAccountChecked({
   const candidateUserKey = await mintUserKey()
   const genesis = await credentialAnchoredAccountGenesisCore({
     was: bootstrapWas,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ladderSeed,
     keyAgreement,
@@ -881,7 +884,7 @@ async function establishCredentialAnchoredAccountChecked({
     }
   }
   const did = genesis.did
-  const fullPointer: AccountPointer = { spaceId, host: wasServerUrl, did }
+  const fullPointer: AccountPointer = { ...pointer, did }
   // The ceremony collects its roster and epoch failures instead of
   // throwing; here they are fatal. A roster that never landed leaves the
   // candidate key held in this tab's memory alone, and a registry sealed
@@ -973,7 +976,7 @@ async function establishCredentialAnchoredAccountChecked({
   // the entry.
   const generation = await ensurePointedClientAnnexGeneration({
     account: published,
-    wasServerUrl,
+    baseServerUrl,
     ladderSeed,
     signer: { kind: 'ladder' },
     projectionStore: idStore,
@@ -982,7 +985,7 @@ async function establishCredentialAnchoredAccountChecked({
     mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
       accountDid: did,
       ladderSeed,
-      wasServerUrl,
+      baseServerUrl,
       spaceId,
       ...(now !== undefined ? { now } : {})
     }),
@@ -1150,7 +1153,7 @@ export async function rebindCredentialAnchoredRecord({
   })
   const sibling = await mintDelegatedClientsDelegation({
     zcapClient: ladderZcap,
-    wasServerUrl: pointer.host,
+    baseServerUrl: baseServerUrlOf(pointer.spaceUrl),
     clientAnnexSpaceId,
     controller: standingClientDid,
     ...(now !== undefined ? { now } : {})

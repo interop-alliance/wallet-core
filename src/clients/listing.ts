@@ -40,16 +40,6 @@ import type { ConnectionEntry } from '../connections/entry.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 
 /**
- * Where an account's did:webvh log is published: the account DID plus the
- * Space and host its `id` collection is served from.
- */
-export interface AccountLogPointer {
-  did: string
-  spaceId: string
-  host: string
-}
-
-/**
  * A log that has already been fetched and locally verified -- exactly what
  * `verifyAccountLog` resolves to. Both entry points below accept one so a
  * caller holding a still-valid result (a session-lifetime cache, or two
@@ -109,7 +99,8 @@ function walletClientEntriesByKey({
  * the caller keeps pins.
  *
  * @param options {object}
- * @param options.pointer {AccountLogPointer}   where the account log lives
+ * @param options.did {string}   the account's did:webvh, which locates its
+ *   own log
  * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
  *   to read instead of fetching and verifying one
  * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
@@ -117,18 +108,18 @@ function walletClientEntriesByKey({
  * @returns {Promise<VerifiedAccountLog>}
  */
 async function resolveVerifiedAccountLog({
-  pointer,
+  did,
   verifiedLog,
   accountLogPinStore
 }: {
-  pointer: AccountLogPointer
+  did: string
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<VerifiedAccountLog> {
   return (
     verifiedLog ??
     (await verifyAccountLog({
-      ...pointer,
+      did,
       ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
     }))
   )
@@ -164,7 +155,8 @@ async function directoryNames({
  * client marked.
  *
  * @param options {object}
- * @param options.pointer {AccountLogPointer}   where the account log lives
+ * @param options.did {string}   the account's did:webvh, which locates its
+ *   own log
  * @param [options.readDirectoryEntries] {Function}   reads the `connections`
  *   directory's entries; its `wallet-client` entries name the rows. Omitted,
  *   or throwing, every row is unlabeled
@@ -177,13 +169,13 @@ async function directoryNames({
  * @returns {Promise<AccountClientView[]>}
  */
 export async function listAccountClients({
-  pointer,
+  did,
   readDirectoryEntries,
   ownSigningKeyMultibase,
   verifiedLog,
   accountLogPinStore
 }: {
-  pointer: AccountLogPointer
+  did: string
   readDirectoryEntries?: () => Promise<ReadonlyArray<ConnectionEntry>>
   ownSigningKeyMultibase?: string
   verifiedLog?: VerifiedAccountLog
@@ -192,7 +184,7 @@ export async function listAccountClients({
   // The log read and the directory read are independent, so they run
   // together. A failed directory read leaves every row unlabeled.
   const [{ log }, named] = await Promise.all([
-    resolveVerifiedAccountLog({ pointer, verifiedLog, accountLogPinStore }),
+    resolveVerifiedAccountLog({ did, verifiedLog, accountLogPinStore }),
     directoryNames({ readDirectoryEntries })
   ])
   const clients = listEnrolledWebvhClients({ log })
@@ -221,7 +213,8 @@ export async function listAccountClients({
  * its page.
  *
  * @param options {object}
- * @param options.pointer {AccountLogPointer}
+ * @param options.did {string}   the account's did:webvh, which locates its
+ *   own log
  * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
  *   to read instead of fetching and verifying one
  * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
@@ -229,16 +222,16 @@ export async function listAccountClients({
  * @returns {Promise<Set<string>>}
  */
 export async function currentAccountSigningKeys({
-  pointer,
+  did,
   verifiedLog,
   accountLogPinStore
 }: {
-  pointer: AccountLogPointer
+  did: string
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<Set<string>> {
   const { doc } = await resolveVerifiedAccountLog({
-    pointer,
+    did,
     verifiedLog,
     accountLogPinStore
   })
@@ -264,7 +257,8 @@ export async function currentAccountSigningKeys({
  * members through `delegationSignerKey`, and this set plays no part in it.
  *
  * @param options {object}
- * @param options.pointer {AccountLogPointer}
+ * @param options.did {string}   the account's did:webvh, which locates its
+ *   own log
  * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
  *   to read instead of fetching and verifying one
  * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
@@ -272,21 +266,21 @@ export async function currentAccountSigningKeys({
  * @returns {Promise<Set<string>>}   public key multibases
  */
 export async function currentAccountRecordSigners({
-  pointer,
+  did,
   verifiedLog,
   accountLogPinStore
 }: {
-  pointer: AccountLogPointer
+  did: string
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<Set<string>> {
   const verified = await resolveVerifiedAccountLog({
-    pointer,
+    did,
     verifiedLog,
     accountLogPinStore
   })
   const keys = await currentAccountSigningKeys({
-    pointer,
+    did,
     verifiedLog: verified
   })
   for (const key of ladderVmKeyMultibases({ doc: verified.doc })) {

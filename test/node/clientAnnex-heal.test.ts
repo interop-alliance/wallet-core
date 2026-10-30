@@ -26,7 +26,7 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
+import { spaceUrlById } from '@interop/was-client/paths'
 import {
   ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
@@ -338,7 +338,7 @@ function fakeServer() {
     spaces,
     zcapClient,
     was: new WasClient({
-      serverUrl: spacesUrl({ baseUrl: WAS_URL }),
+      baseServerUrl: WAS_URL,
       zcapClient
     }),
     /**
@@ -377,7 +377,7 @@ async function healWorld() {
   }
   const { did } = await ensureLadderAnchoredDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: ACCOUNT_SPACE_ID,
     ladderSeed: LADDER_SEED,
     keyAgreement: {
@@ -431,7 +431,7 @@ async function mintSibling({
 }): Promise<IZcap> {
   return mintDelegatedClientsDelegation({
     zcapClient: world.ladderClient,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     clientAnnexSpaceId: spaceId,
     controller: world.standingClient.did,
     ...(now !== undefined ? { now } : {})
@@ -456,7 +456,13 @@ async function mintBridge({
 }): Promise<IZcap> {
   const minted = await delegateLogWrite({
     zcapClient: zcapClient ?? world.ladderClient,
-    pointer: { did: world.did, spaceId: ACCOUNT_SPACE_ID, host: WAS_URL },
+    pointer: {
+      did: world.did,
+      spaceUrl: spaceUrlById({
+        baseServerUrl: WAS_URL,
+        spaceId: ACCOUNT_SPACE_ID
+      })
+    },
     recoveryClientDid: world.standingClient.did
   })
   return expires === undefined ? minted : ({ ...minted, expires } as IZcap)
@@ -480,7 +486,7 @@ async function publishPointedGeneration({
 }) {
   const minted = await mintCredentialClientAnnexGeneration({
     was: world.server.was,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: world.did,
     ladderSeed,
@@ -499,7 +505,7 @@ async function publishPointedGeneration({
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
         accountDid: world.did,
         ladderSeed: LADDER_SEED,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         ...(now !== undefined ? { now } : {})
       }),
@@ -619,7 +625,7 @@ async function runEnsure({
   const reboundBridges: IZcap[] = []
   const storeBridges: IZcap[] = []
   const outcome = await ensureCredentialClientAnnexGeneration({
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: ACCOUNT_SPACE_ID,
     account: await world.accountView(),
     ladderSeed,
@@ -1146,7 +1152,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const account = memoryIdStore()
     await ensureDidWebvh({
       idStore: account.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       clientKeys: CANONICAL_CLIENT_KEYS[0]!,
       updateKeys: { updateSeed: fixedSeed(1), stagedSeed: fixedSeed(2) }
@@ -1155,7 +1161,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const logBefore = account.log()
     // The document lists enrolled clients only -- no ladder VM stands in it.
     const error = await ensureCredentialClientAnnexGeneration({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       account: published!,
       ladderSeed: LADDER_SEED,
@@ -1206,7 +1212,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const logBefore = world.account.log()
 
     const error = await ensureCredentialClientAnnexGeneration({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       account: { did: view.did, doc: view.doc, log: doctoredLog },
       ladderSeed: LADDER_SEED,
@@ -1565,7 +1571,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const rung1 = await ladderRung({ ladderSeed: LADDER_SEED, index: 1 })
     const swapped = await swapClientAnnexGeneration({
       was: world.server.was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       accountSpaceId: ACCOUNT_SPACE_ID,
       account: await world.accountView(),
       idStore: world.idStore,
@@ -1841,7 +1847,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     })
     const rotted = await mintDelegatedClientsDelegation({
       zcapClient: rottedSigner,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       clientAnnexSpaceId: AUX_SPACE_ID,
       controller: world.standingClient.did
     })
@@ -1932,7 +1938,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const world = await healWorld()
     const minted = await mintCredentialClientAnnexGeneration({
       was: world.server.was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: world.did,
       ladderSeed: LADDER_SEED,
@@ -2124,7 +2130,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const view = await world.accountView()
     expect(() =>
       ensureCredentialClientAnnexGeneration({
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         account: view,
         ladderSeed: LADDER_SEED,

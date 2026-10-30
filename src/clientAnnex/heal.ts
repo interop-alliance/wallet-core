@@ -89,7 +89,7 @@
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient, type ServiceDescription } from '@interop/was-client'
-import { spaceMeta, spacesUrl } from '@interop/was-client/paths'
+import { spaceMetaUrl, spaceUrlById } from '@interop/was-client/paths'
 import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
 import type { AccountLogStore } from '../webvh/accountEntry.js'
@@ -193,7 +193,7 @@ export class ClientAnnexGenerationUnavailableError extends Error {
  * @param options.accountDid {string}   the account did:webvh
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
  *   its unlock record
- * @param options.wasServerUrl {string}   the ACCOUNT Space's storage server
+ * @param options.baseServerUrl {string}   the ACCOUNT Space's storage server
  * @param options.spaceId {string}   the ACCOUNT Space's id (the delegation's
  *   target subtree)
  * @param [options.now] {number}   epoch milliseconds, for tests
@@ -202,13 +202,13 @@ export class ClientAnnexGenerationUnavailableError extends Error {
 export function ladderSignedGenerationDelegationMinter({
   accountDid,
   ladderSeed,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   now
 }: {
   accountDid: string
   ladderSeed: Uint8Array
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   now?: number
 }): (options: { clientAnnexDid: string }) => Promise<IZcap> {
@@ -216,7 +216,7 @@ export function ladderSignedGenerationDelegationMinter({
     const zcapClient = await ladderVmZcapClient({ accountDid, ladderSeed })
     return mintGenerationDelegation({
       zcapClient,
-      wasServerUrl,
+      baseServerUrl,
       spaceId,
       clientAnnexDid,
       ...(now !== undefined ? { now } : {})
@@ -313,7 +313,7 @@ export async function readSpaceMetadata({
   let status: number
   try {
     const response = await was.request({
-      path: spaceMeta(annexSpaceId),
+      url: spaceMetaUrl({ spaceUrl: was.space(annexSpaceId).url }),
       method: 'GET',
       ...(capability !== undefined ? { capability } : {})
     })
@@ -351,7 +351,7 @@ export async function readSpaceMetadata({
  * orphan is the standing collect fan-out's to pick up.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}   the account pointer's host
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.spaceId {string}   the ACCOUNT Space's id
  * @param options.account {object}   the VERIFIED account log view
  *   (`{ did, doc, log }` -- the caller's `verifyAccountLog` read; never
@@ -387,7 +387,7 @@ export async function readSpaceMetadata({
  * @returns {Promise<ClientAnnexGenerationEnsureOutcome>}
  */
 export function ensureCredentialClientAnnexGeneration(options: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   ladderSeed: Uint8Array
@@ -422,7 +422,7 @@ export function ensureCredentialClientAnnexGeneration(options: {
  * @returns {Promise<ClientAnnexGenerationEnsureOutcome>}
  */
 async function ensureCredentialClientAnnexGenerationChecked({
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   account,
   ladderSeed,
@@ -435,7 +435,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   serviceDescription,
   now
 }: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   ladderSeed: Uint8Array
@@ -485,7 +485,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   const mintDelegation = ladderSignedGenerationDelegationMinter({
     accountDid: account.did,
     ladderSeed,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ...(now !== undefined ? { now } : {})
   })
@@ -507,7 +507,10 @@ async function ensureCredentialClientAnnexGenerationChecked({
   ) {
     usableBridge = await delegateLogWrite({
       zcapClient: ladderClient,
-      pointer: { did: account.did, spaceId, host: wasServerUrl },
+      pointer: {
+        did: account.did,
+        spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
+      },
       recoveryClientDid: standingClient.did,
       ...(now !== undefined ? { now } : {})
     })
@@ -653,7 +656,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   }): Promise<boolean> {
     const probe = await mintSpaceRootVerbCapability({
       zcapClient: ladderClient,
-      storageServerUrl: wasServerUrl,
+      baseServerUrl,
       spaceId: annexSpaceId,
       verb: 'GET',
       controller: standingClient.did,
@@ -730,7 +733,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     ) {
       sibling = await mintDelegatedClientsDelegation({
         zcapClient: ladderClient,
-        wasServerUrl,
+        baseServerUrl,
         clientAnnexSpaceId: annexSpaceId,
         controller: standingClient.did,
         ...(now !== undefined ? { now } : {})
@@ -739,7 +742,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     }
     const usableSibling = sibling
     const standingWas = new WasClient({
-      serverUrl: spacesUrl({ baseUrl: wasServerUrl }),
+      baseServerUrl,
       zcapClient: standingClient.zcapClient,
       serviceDescription
     })
@@ -859,7 +862,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     await attributePointerEntryRung({ ladderSeed, log: account.log })
     const generation = await mintPointedClientAnnexGeneration({
       was: standingWas,
-      wasServerUrl,
+      baseServerUrl,
       spaceId: annexSpaceId,
       controller: account.did,
       ladderSeed,

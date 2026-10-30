@@ -59,121 +59,125 @@ function fakeWas({
     collectionConfigures: [] as CollectionConfigure[],
     setPublics: [] as string[]
   }
-  const was = {
-    space: (spaceId: string) => ({
-      describe: async () =>
-        provisioned
-          ? {
+  const spaceHandle = (spaceId: string) => ({
+    url: `https://was.test/space/${spaceId}/`,
+    describe: async () =>
+      provisioned
+        ? {
+            id: spaceId,
+            type: ['Space'],
+            name: WALLET_SPACE_NAME,
+            controller: 'did:webvh:x'
+          }
+        : null,
+    describeWithEtag: async () =>
+      provisioned
+        ? {
+            description: {
               id: spaceId,
               type: ['Space'],
               name: WALLET_SPACE_NAME,
               controller: 'did:webvh:x'
-            }
-          : null,
-      describeWithEtag: async () =>
-        provisioned
-          ? {
-              description: {
-                id: spaceId,
-                type: ['Space'],
-                name: WALLET_SPACE_NAME,
-                controller: 'did:webvh:x'
-              },
-              etag: '"1"'
-            }
-          : null,
-      configure: async (opts: { name?: string; controller?: string }) => {
-        calls.spaceConfigures.push({ spaceId, ...opts })
-        // Mirror the real `Space.configure`, which returns the description it
-        // wrote -- what `ensureSpace` hands back for the fan-out to thread.
-        return { id: spaceId, type: ['Space'], ...opts }
-      },
-      // The guarded create `ensureSpace` runs on an absent Space; recorded
-      // beside the configures, since it is the same write.
-      replaceDescription: async (opts: {
-        name?: string
-        controller?: string
-      }) => {
-        calls.spaceConfigures.push({ spaceId, ...opts })
-        return {
-          description: { id: spaceId, type: ['Space'], ...opts },
-          etag: '"1"'
-        }
-      },
-      collection: (collectionId: string) => ({
-        describeWithEtag: async () => {
-          if (!provisioned) {
-            return null
-          }
-          const spec = specs.get(collectionId)
-          return {
-            description: {
-              name: spec?.name,
-              ...(spec?.encryption === 'edv'
-                ? {
-                    encryption: {
-                      scheme: 'edv',
-                      version: 1,
-                      ...(legacyDescriptor
-                        ? {}
-                        : {
-                            currentEpoch: 'did:key:z6LSepoch0',
-                            epochs: [
-                              { id: 'did:key:z6LSepoch0', recipients: [] }
-                            ],
-                            history: {
-                              method: 'resource-log:0.1',
-                              resource: `https://was.test/space/${spaceId}/${collectionId}/meta/log`
-                            }
-                          })
-                    }
-                  }
-                : {})
             },
             etag: '"1"'
           }
-        },
-        // The guarded create on an absent collection (recorded as a
-        // configure, since it is the same write). The compare-and-swapped
-        // late declaration is never driven: a provisioned Space here always
-        // carries its descriptors.
-        replaceDescription: async (
+        : null,
+    configure: async (opts: { name?: string; controller?: string }) => {
+      calls.spaceConfigures.push({ spaceId, ...opts })
+      // Mirror the real `Space.configure`, which returns the description it
+      // wrote -- what `ensureSpace` hands back for the fan-out to thread.
+      return { id: spaceId, type: ['Space'], ...opts }
+    },
+    // The guarded create `ensureSpace` runs on an absent Space; recorded
+    // beside the configures, since it is the same write.
+    replaceDescription: async (opts: {
+      name?: string
+      controller?: string
+    }) => {
+      calls.spaceConfigures.push({ spaceId, ...opts })
+      return {
+        description: { id: spaceId, type: ['Space'], ...opts },
+        etag: '"1"'
+      }
+    },
+    collection: (collectionId: string) => ({
+      describeWithEtag: async () => {
+        if (!provisioned) {
+          return null
+        }
+        const spec = specs.get(collectionId)
+        return {
           description: {
-            name?: string
-            encryption?: { scheme: string; version?: number }
+            name: spec?.name,
+            ...(spec?.encryption === 'edv'
+              ? {
+                  encryption: {
+                    scheme: 'edv',
+                    version: 1,
+                    ...(legacyDescriptor
+                      ? {}
+                      : {
+                          currentEpoch: 'did:key:z6LSepoch0',
+                          epochs: [
+                            { id: 'did:key:z6LSepoch0', recipients: [] }
+                          ],
+                          history: {
+                            method: 'resource-log:0.1',
+                            resource: `https://was.test/space/${spaceId}/${collectionId}/meta/log`
+                          }
+                        })
+                  }
+                }
+              : {})
           },
-          { ifNoneMatch }: { ifMatch?: string; ifNoneMatch?: boolean }
-        ) => {
-          if (!ifNoneMatch || provisioned) {
-            throw new Error(
-              `Unexpected replaceDescription of "${collectionId}".`
-            )
-          }
-          const call = { collectionId, ...description }
-          if (failConfigure?.(call)) {
-            throw new Error(`Refused configure of "${collectionId}".`)
-          }
-          calls.collectionConfigures.push(call)
-          return { description, etag: '"1"' }
-        },
-        configure: async (opts: {
+          etag: '"1"'
+        }
+      },
+      // The guarded create on an absent collection (recorded as a
+      // configure, since it is the same write). The compare-and-swapped
+      // late declaration is never driven: a provisioned Space here always
+      // carries its descriptors.
+      replaceDescription: async (
+        description: {
           name?: string
           encryption?: { scheme: string; version?: number }
-          force?: boolean
-          current?: unknown
-        }) => {
-          const call = { collectionId, ...opts }
-          if (failConfigure?.(call)) {
-            throw new Error(`Refused configure of "${collectionId}".`)
-          }
-          calls.collectionConfigures.push(call)
         },
-        isPublic: async () => provisioned,
-        setPublic: async () => {
-          calls.setPublics.push(collectionId)
+        { ifNoneMatch }: { ifMatch?: string; ifNoneMatch?: boolean }
+      ) => {
+        if (!ifNoneMatch || provisioned) {
+          throw new Error(`Unexpected replaceDescription of "${collectionId}".`)
         }
-      })
+        const call = { collectionId, ...description }
+        if (failConfigure?.(call)) {
+          throw new Error(`Refused configure of "${collectionId}".`)
+        }
+        calls.collectionConfigures.push(call)
+        return { description, etag: '"1"' }
+      },
+      configure: async (opts: {
+        name?: string
+        encryption?: { scheme: string; version?: number }
+        force?: boolean
+        current?: unknown
+      }) => {
+        const call = { collectionId, ...opts }
+        if (failConfigure?.(call)) {
+          throw new Error(`Refused configure of "${collectionId}".`)
+        }
+        calls.collectionConfigures.push(call)
+      },
+      isPublic: async () => provisioned,
+      setPublic: async () => {
+        calls.setPublics.push(collectionId)
+      }
     })
+  })
+  const was = {
+    space: spaceHandle,
+    // was-client's `ensureSpace` opens the handle by its URL; the fake's
+    // Space URL carries the id as its last segment.
+    spaceAt: (url: string) =>
+      spaceHandle(new URL(url).pathname.split('/').filter(Boolean).at(-1)!)
   } as unknown as WasClient
   return { was, calls }
 }

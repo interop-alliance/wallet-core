@@ -25,8 +25,7 @@ import { FAST_KDF } from '../../src/testing/fastKdf.js'
 
 const POINTER = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',
-  spaceId: 'space-1',
-  host: 'https://was.example'
+  spaceUrl: 'https://was.example/space/space-1/'
 }
 const DELEGATION = {
   id: 'urn:zcap:delegated:standing',

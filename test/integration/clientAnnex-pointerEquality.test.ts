@@ -17,7 +17,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { WasClient } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
 
 import {
   delegatedClientsPointer,
@@ -49,8 +48,9 @@ describe('the pointer-equality clause against the real server', () => {
   })
 
   it("stops verifying a generation's delegation once the pointer moves off it", async () => {
-    const account = await establishAccount({ serverUrl: server.serverUrl })
-    const { serverUrl, spaceId, accountDid, annexSpaceId, ladderSeed } = account
+    const account = await establishAccount({ baseServerUrl: server.serverUrl })
+    const { baseServerUrl, spaceId, accountDid, annexSpaceId, ladderSeed } =
+      account
     const visit = await transientVisit({ account })
     expect(await visit.readRoster()).toBe(200)
 
@@ -58,10 +58,10 @@ describe('the pointer-equality clause against the real server', () => {
     const pinStore = memoryResourceLogPinStore()
     const moved = await mintPointedClientAnnexGeneration({
       was: new WasClient({
-        serverUrl: spacesUrl({ baseUrl: serverUrl }),
+        baseServerUrl,
         zcapClient: account.standing.agents.zcapClient
       }),
-      wasServerUrl: serverUrl,
+      baseServerUrl,
       spaceId: annexSpaceId,
       controller: accountDid,
       ladderSeed,
@@ -70,7 +70,7 @@ describe('the pointer-equality clause against the real server', () => {
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
         accountDid,
         ladderSeed,
-        wasServerUrl: serverUrl,
+        baseServerUrl,
         spaceId
       }),
       point: clientAnnexDid =>

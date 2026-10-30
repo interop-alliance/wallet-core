@@ -45,12 +45,20 @@ import {
   verifyAccountLog
 } from '../../src/webvh/verifyLog.js'
 import { readPublishedLog } from '../../src/webvh/didWebvh.js'
+import { didWebvhLogLocation } from '../../src/webvh/logLocation.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { publishedAccount, stubFetch } from './fixtures/publishedAccount.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-verify'
-const ACCOUNT = { wasServerUrl: WAS_URL, spaceId: SPACE_ID }
+const SPACE_URL = `${WAS_URL}/space/${SPACE_ID}/`
+const LOG_URL = `${SPACE_URL}id/${DID_LOG_RESOURCE}`
+const ACCOUNT = { baseServerUrl: WAS_URL, spaceId: SPACE_ID }
+// A well-formed SCID (the did:webvh parser checks for one) that no log here
+// was minted under: a DID carrying it at the account's own location names
+// another account published at the same place.
+const OTHER_SCID = 'durCj2h8E75t8UAyyiZE6WBJwJuPasUm8C1d3KJcqZTfeu'
+const OTHER_DID = `did:webvh:${OTHER_SCID}:localhost%3A8080:space:${SPACE_ID}:id`
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -65,21 +73,29 @@ describe('verifyAccountLog', () => {
       serve: () => ({ status: 200, body: logText })
     })
 
-    const verified = await verifyAccountLog({
-      did,
-      spaceId: SPACE_ID,
-      host: WAS_URL
-    })
+    const verified = await verifyAccountLog({ did })
     expect(verified.doc.id).toBe(did)
     expect(verified.log.length).toBeGreaterThan(0)
     expect(verified.updateKeys.length).toBeGreaterThan(0)
     expect(verified.nextKeyHashes.length).toBeGreaterThan(0)
     // The log resource is read from the Space's world-readable `id`
-    // collection, unauthenticated.
+    // collection, unauthenticated, at the URL the DID itself encodes.
     const [url] = vi.mocked(fetch).mock.calls[0]!
-    expect(String(url)).toBe(
-      `${WAS_URL}/space/${SPACE_ID}/id/${DID_LOG_RESOURCE}`
-    )
+    expect(String(url)).toBe(LOG_URL)
+    expect(String(url)).toBe(didWebvhLogLocation({ did }).logUrl)
+  })
+
+  it('fetches the log at the URL the DID encodes', async () => {
+    const { did, logText } = await publishedAccount(ACCOUNT)
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: logText })
+    })
+
+    const verified = await verifyAccountLog({ did })
+    expect(verified.doc.id).toBe(did)
+    const [url] = vi.mocked(fetch).mock.calls[0]!
+    expect(String(url)).toBe(LOG_URL)
   })
 
   it('refuses a log that resolves to a different DID', async () => {
@@ -89,35 +105,23 @@ describe('verifyAccountLog', () => {
       serve: () => ({ status: 200, body: logText })
     })
 
-    await expect(
-      verifyAccountLog({
-        did: 'did:webvh:QmSomeoneElse:localhost%3A8080:space:other:id',
-        spaceId: SPACE_ID,
-        host: WAS_URL
-      })
-    ).rejects.toThrow('resolves to a different DID')
+    await expect(verifyAccountLog({ did: OTHER_DID })).rejects.toThrow(
+      'resolves to a different DID'
+    )
   })
 
   it('signals an absent log distinctly', async () => {
     stubFetch({ serverUrl: WAS_URL, serve: () => ({ status: 404 }) })
-    await expect(
-      verifyAccountLog({
-        did: 'did:webvh:x:y',
-        spaceId: SPACE_ID,
-        host: WAS_URL
-      })
-    ).rejects.toThrow(AccountLogMissingError)
+    await expect(verifyAccountLog({ did: OTHER_DID })).rejects.toThrow(
+      AccountLogMissingError
+    )
   })
 
   it('reports a transport failure with its status', async () => {
     stubFetch({ serverUrl: WAS_URL, serve: () => ({ status: 503 }) })
-    await expect(
-      verifyAccountLog({
-        did: 'did:webvh:x:y',
-        spaceId: SPACE_ID,
-        host: WAS_URL
-      })
-    ).rejects.toThrow('HTTP 503')
+    await expect(verifyAccountLog({ did: OTHER_DID })).rejects.toThrow(
+      'HTTP 503'
+    )
   })
 
   it('never renders "undefined" for a log that simply does not resolve', async () => {
@@ -128,13 +132,7 @@ describe('verifyAccountLog', () => {
       serve: () => ({ status: 200, body: logText })
     })
     resolveOverride.value = () => ({ meta: {} })
-    await expect(
-      verifyAccountLog({
-        did: 'did:webvh:x:y',
-        spaceId: SPACE_ID,
-        host: WAS_URL
-      })
-    ).rejects.toThrow(
+    await expect(verifyAccountLog({ did: OTHER_DID })).rejects.toThrow(
       /failed to resolve \(the resolver returned no DID document\)/
     )
   })
@@ -148,24 +146,20 @@ describe('discoverAccountLog', () => {
       serve: () => ({ status: 200, body: logText })
     })
 
-    const discovered = await discoverAccountLog({
-      spaceId: SPACE_ID,
-      host: WAS_URL
-    })
+    const discovered = await discoverAccountLog({ spaceUrl: SPACE_URL })
     expect(discovered.did).toBe(did)
     expect(discovered.doc.id).toBe(did)
     expect(discovered.log.length).toBeGreaterThan(0)
     expect(discovered.updateKeys.length).toBeGreaterThan(0)
     const [url] = vi.mocked(fetch).mock.calls[0]!
-    expect(String(url)).toBe(
-      `${WAS_URL}/space/${SPACE_ID}/id/${DID_LOG_RESOURCE}`
-    )
+    expect(String(url)).toBe(LOG_URL)
   })
 
   it('refuses a log published for another location and served here', async () => {
     // A genuine log, published for another Space, served under this one.
+    const { did } = await publishedAccount(ACCOUNT)
     const other = await publishedAccount({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: 'space-elsewhere'
     })
     stubFetch({
@@ -173,44 +167,62 @@ describe('discoverAccountLog', () => {
       serve: () => ({ status: 200, body: other.logText })
     })
 
-    await expect(
-      discoverAccountLog({ spaceId: SPACE_ID, host: WAS_URL })
-    ).rejects.toThrow(/log location .* is not where it was served from/)
-    // The expected-DID reader runs the same check ahead of its own, so a
-    // caller naming that other account's DID at this location is refused too.
-    await expect(
-      verifyAccountLog({ did: other.did, spaceId: SPACE_ID, host: WAS_URL })
-    ).rejects.toThrow(/not where it was served from/)
+    await expect(discoverAccountLog({ spaceUrl: SPACE_URL })).rejects.toThrow(
+      /log location .* is not where it was served from/
+    )
+    // The expected-DID reader fetches at this DID's own location and runs the
+    // same check ahead of its own, so the other account's log served there
+    // is refused too.
+    await expect(verifyAccountLog({ did })).rejects.toThrow(
+      /not where it was served from/
+    )
   })
 
-  it('admits a log served by a server deployed under a base path', async () => {
-    // The DID encodes the host and the Space path alone, while the fetch
-    // keeps the server's base path, so the check must look past the prefix.
-    const subPathUrl = 'https://storage.example/was'
+  it('locates a log created under a sub-path base server URL through its DID', async () => {
+    // The DID encodes the base server URL's path prefix as colon segments,
+    // so a log created under `https://wallet.example/was/` is fetched at
+    // `https://wallet.example/was/space/<id>/id/did.jsonl`.
+    const subPathBase = 'https://wallet.example/was/'
     const { did, logText } = await publishedAccount({
-      wasServerUrl: subPathUrl,
+      baseServerUrl: subPathBase,
       spaceId: SPACE_ID
     })
+    expect(did).toMatch(
+      new RegExp(`^did:webvh:[^:]+:wallet.example:was:space:${SPACE_ID}:id$`)
+    )
     stubFetch({
-      serverUrl: subPathUrl,
+      serverUrl: subPathBase,
       serve: () => ({ status: 200, body: logText })
     })
 
-    const discovered = await discoverAccountLog({
-      spaceId: SPACE_ID,
-      host: subPathUrl
-    })
+    const subPathSpaceUrl = `${subPathBase}space/${SPACE_ID}/`
+    const discovered = await discoverAccountLog({ spaceUrl: subPathSpaceUrl })
     expect(discovered.did).toBe(did)
-    const verified = await verifyAccountLog({
-      did,
-      spaceId: SPACE_ID,
-      host: subPathUrl
-    })
+    const verified = await verifyAccountLog({ did })
     expect(verified.doc.id).toBe(did)
-    const [url] = vi.mocked(fetch).mock.calls[0]!
-    expect(String(url)).toBe(
-      `${subPathUrl}/space/${SPACE_ID}/id/${DID_LOG_RESOURCE}`
-    )
+    for (const [url] of vi.mocked(fetch).mock.calls) {
+      expect(String(url)).toBe(`${subPathSpaceUrl}id/${DID_LOG_RESOURCE}`)
+    }
+  })
+
+  it('refuses a log served at another location than its DID encodes', async () => {
+    // The same log, published for the sub-path base, served from an
+    // origin-root mount: the resolved DID locates `/was/space/...`, not the
+    // URL it was fetched from.
+    const { logText } = await publishedAccount({
+      baseServerUrl: 'https://wallet.example/was/',
+      spaceId: SPACE_ID
+    })
+    stubFetch({
+      serverUrl: 'https://wallet.example',
+      serve: () => ({ status: 200, body: logText })
+    })
+
+    await expect(
+      discoverAccountLog({
+        spaceUrl: `https://wallet.example/space/${SPACE_ID}/`
+      })
+    ).rejects.toThrow(/log location .* is not where it was served from/)
   })
 
   it('refuses a tampered log', async () => {
@@ -225,16 +237,16 @@ describe('discoverAccountLog', () => {
     })
 
     // The resolver refuses the broken hash chain itself, so no DID comes out.
-    await expect(
-      discoverAccountLog({ spaceId: SPACE_ID, host: WAS_URL })
-    ).rejects.toThrow(/not derived from logEntryHash/)
+    await expect(discoverAccountLog({ spaceUrl: SPACE_URL })).rejects.toThrow(
+      /not derived from logEntryHash/
+    )
   })
 
   it('signals an absent log distinctly', async () => {
     stubFetch({ serverUrl: WAS_URL, serve: () => ({ status: 404 }) })
-    await expect(
-      discoverAccountLog({ spaceId: SPACE_ID, host: WAS_URL })
-    ).rejects.toThrow(AccountLogMissingError)
+    await expect(discoverAccountLog({ spaceUrl: SPACE_URL })).rejects.toThrow(
+      AccountLogMissingError
+    )
   })
 
   it('checks and advances the chain-head pin under the account log slot', async () => {
@@ -245,8 +257,7 @@ describe('discoverAccountLog', () => {
     })
     const pinStore = memoryResourceLogPinStore()
     const discovered = await discoverAccountLog({
-      spaceId: SPACE_ID,
-      host: WAS_URL,
+      spaceUrl: SPACE_URL,
       pinStore
     })
     const pin = await pinStore.read({
@@ -265,8 +276,6 @@ describe('verifyAccountLog over a caller-supplied head', () => {
 
     const verified = await verifyAccountLog({
       did: account.did,
-      spaceId: SPACE_ID,
-      host: WAS_URL,
       published: published!
     })
 
@@ -282,9 +291,7 @@ describe('verifyAccountLog over a caller-supplied head', () => {
 
     await expect(
       verifyAccountLog({
-        did: 'did:webvh:another:account',
-        spaceId: SPACE_ID,
-        host: WAS_URL,
+        did: OTHER_DID,
         published: published!
       })
     ).rejects.toThrow(/different DID/)
@@ -304,8 +311,6 @@ describe('accountControllerResolver', () => {
     })
     const resolve = accountControllerResolver({
       did,
-      spaceId: SPACE_ID,
-      host: WAS_URL,
       pinStore: memoryResourceLogPinStore()
     })
     expect(served).toBe(0)
@@ -323,8 +328,6 @@ describe('accountControllerResolver', () => {
     vi.stubGlobal('fetch', fetchSpy)
     const resolve = accountControllerResolver({
       did,
-      spaceId: SPACE_ID,
-      host: WAS_URL,
       pinStore: memoryResourceLogPinStore(),
       log: readLogFromString(logText)
     })

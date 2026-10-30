@@ -107,7 +107,7 @@ async function provisionedLog(): Promise<{
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
     updateKeys
@@ -979,7 +979,7 @@ describe("a standing credential's ladder VM", () => {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement
@@ -1492,7 +1492,7 @@ describe("a standing credential's ladder VM", () => {
     }
     const kmsAuthMultibase = 'z6MkAuthConvenience'
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: {
         authentication: {
@@ -1773,7 +1773,7 @@ describe("a standing credential's ladder VM", () => {
     const { idStore, log } = memoryIdStore()
     const credential = await standingCredential(9)
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
       keyAgreement: {
@@ -1869,7 +1869,7 @@ describe("a standing credential's ladder VM", () => {
     const { idStore, log } = memoryIdStore()
     const acting = await standingCredential(9)
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: acting.ladderSeed,
       keyAgreement: { publicKeyMultibase: acting.keyAgreementKeyMultibase }
@@ -2144,7 +2144,7 @@ describe("a standing credential's ladder VM", () => {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement
@@ -2189,7 +2189,7 @@ describe("a standing credential's ladder VM", () => {
     const { idStore, log } = memoryIdStore()
     const first = await standingCredential(9)
     const created = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: first.ladderSeed,
       keyAgreement: {
@@ -2336,7 +2336,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     }
     const { idStore, log } = memoryIdStore()
     const genesis = await createLadderAnchoredAccountLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
       keyAgreement

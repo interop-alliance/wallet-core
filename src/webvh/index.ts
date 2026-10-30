@@ -109,6 +109,8 @@ export {
   clientKeyAgreementController,
   commitmentMatchesKey,
   didWebvhControllerTemplate,
+  didWebvhLogLocation,
+  didWebvhLogPaths,
   ensureDidWebvh,
   keyAgreementCommitment,
   keyAgreementTwinMultibase,

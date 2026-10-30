@@ -127,6 +127,7 @@ import type {
 } from '../webvh/didWebvh.js'
 import { isWebvhDid } from '../webvh/did.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
+import { baseServerUrlOf, spaceIdOfUrl } from '@interop/was-client/paths'
 import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
 import type { CollectionEncryption } from '@interop/was-client'
@@ -413,6 +414,9 @@ async function mendCredentialAnchoredAccountChecked(
 ): Promise<CredentialAnchoredMendReport> {
   const { account, standing, idStore } = options
   const { pointer, ladderSeed } = account
+  // The pointer's Space id and base server URL, read once for every arm.
+  const spaceId = spaceIdOfUrl(pointer.spaceUrl)
+  const baseServerUrl = baseServerUrlOf(pointer.spaceUrl)
   const report: CredentialAnchoredMendReport = { reenter: false }
   const stage = stageNotifier(options.onStage)
   // The bootstrap identity every arm needs. A failure here (a malformed
@@ -512,8 +516,8 @@ async function mendCredentialAnchoredAccountChecked(
     }
     try {
       const established = await establishCredentialAnchoredAccount({
-        wasServerUrl: pointer.host,
-        spaceId: pointer.spaceId,
+        baseServerUrl,
+        spaceId,
         ladderSeed,
         standing,
         bindRecord: options.bindRecord,
@@ -573,7 +577,7 @@ async function mendCredentialAnchoredAccountChecked(
       promotionOutcome = await ensurePromotedSpaceController({
         was: bootstrapWas,
         wasAsClient: bootstrapWas,
-        spaceId: pointer.spaceId,
+        spaceId,
         did
       })
     } catch {
@@ -599,7 +603,7 @@ async function mendCredentialAnchoredAccountChecked(
     let described: { controller?: string } | null = null
     let probeFailed = false
     try {
-      described = (await bootstrapWas.space(pointer.spaceId).describe()) as {
+      described = (await bootstrapWas.space(spaceId).describe()) as {
         controller?: string
       } | null
     } catch (err) {
@@ -611,7 +615,7 @@ async function mendCredentialAnchoredAccountChecked(
         const promotionOutcome = await ensurePromotedSpaceController({
           was: bootstrapWas,
           wasAsClient: bootstrapWas,
-          spaceId: pointer.spaceId,
+          spaceId,
           did
         })
         report.promotion = { converged: true, outcome: 'promoted' }
@@ -669,6 +673,7 @@ async function mendCredentialAnchoredAccountChecked(
       (rosterAbsent || collectionEpochless || mended || options.repairShaped)
     ) {
       const arm = await runRosterEpochsArm({
+        spaceId,
         options,
         did,
         rosterStore,
@@ -764,11 +769,7 @@ async function rebindDowngradedRecord({
 }): Promise<void> {
   const { account, standing } = options
   const { pointer, ladderSeed } = account
-  const fullPointer: AccountPointer = {
-    spaceId: pointer.spaceId,
-    host: pointer.host,
-    did: published.did
-  }
+  const fullPointer: AccountPointer = { ...pointer, did: published.did }
   await rebindCredentialAnchoredRecord({
     accountDid: published.did,
     pointer: fullPointer,
@@ -838,6 +839,7 @@ function encryptedCollectionIds(
  *
  * @param options {object}
  * @param options.options {object}   the mend options
+ * @param options.spaceId {string}   the account's Space id
  * @param options.collectionStore {Function}   `(collectionId) =>
  *   EncryptionDescriptorStore` -- the per-collection verified stores
  * @param options.invocation {object}   the post-promotion authority triple
@@ -847,10 +849,12 @@ function encryptedCollectionIds(
  */
 async function describeEncryptedCollections({
   options,
+  spaceId,
   collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
+  spaceId: string
   collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
@@ -862,7 +866,7 @@ async function describeEncryptedCollections({
     epochless: boolean
   }>
 > {
-  const space = invocation.was.space(options.account.pointer.spaceId, {
+  const space = invocation.was.space(spaceId, {
     capability: invocation.capability
   })
   const collectionIds = encryptedCollectionIds(options)
@@ -930,6 +934,7 @@ async function hasEpochlessEncryptedCollection({
  * @param options {object}
  * @param options.options {object}   the mend options
  * @param options.did {string}   the account DID
+ * @param options.spaceId {string}   the account's Space id
  * @param options.rosterStore {EncryptionDescriptorStore}
  * @param options.collectionStore {Function}   `(collectionId) =>
  *   EncryptionDescriptorStore` -- the fan-out's per-collection stores
@@ -939,12 +944,14 @@ async function hasEpochlessEncryptedCollection({
 async function runRosterEpochsArm({
   options,
   did,
+  spaceId,
   rosterStore,
   collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   did: string
+  spaceId: string
   rosterStore: EncryptionDescriptorStore
   collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
@@ -954,7 +961,7 @@ async function runRosterEpochsArm({
   member: NonNullable<CredentialAnchoredMendReport['rosterEpochs']>
   accountLog?: PublishedWebvhLog
 }> {
-  const { account, standing } = options
+  const { standing } = options
   let accountLog: PublishedWebvhLog | undefined
   let delivered
   try {
@@ -963,12 +970,13 @@ async function runRosterEpochsArm({
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: standing.keyAgreementKey,
       storeFor: collectionStore,
-      spaceId: account.pointer.spaceId,
+      spaceId,
       ...(options.collectionIds !== undefined
         ? { collectionIds: options.collectionIds }
         : {}),
       beforeMint: async () => {
         const checked = await rosterMintRefusal({
+          spaceId,
           options,
           did,
           collectionStore,
@@ -1026,6 +1034,7 @@ async function runRosterEpochsArm({
  * @param options {object}
  * @param options.options {object}   the mend options
  * @param options.did {string}
+ * @param options.spaceId {string}   the account's Space id
  * @param options.collectionStore {Function}   the per-collection verified
  *   stores the epoch precondition reads through
  * @param options.invocation {object}
@@ -1036,11 +1045,13 @@ async function runRosterEpochsArm({
 async function rosterMintRefusal({
   options,
   did,
+  spaceId,
   collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   did: string
+  spaceId: string
   collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
@@ -1100,6 +1111,7 @@ async function rosterMintRefusal({
     // verified log): a collection keyed under an earlier user key beside an
     // "absent" roster is fabricated absence.
     const described = await describeEncryptedCollections({
+      spaceId,
       options,
       collectionStore,
       invocation

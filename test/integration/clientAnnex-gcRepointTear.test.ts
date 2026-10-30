@@ -25,7 +25,7 @@
  *   to do.
  */
 import { WasClient } from '@interop/was-client'
-import { resourcePath, spacesUrl } from '@interop/was-client/paths'
+import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   afterAll,
@@ -101,16 +101,22 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
    */
   async function enrolledSession() {
     const account = await buildEnrolledClientAccount({
-      serverUrl: server.serverUrl
+      baseServerUrl: server.serverUrl
     })
-    const { serverUrl, spaceId, accountDid, annexSpaceId, client } = account
+    const { baseServerUrl, spaceId, accountDid, annexSpaceId, client } = account
     const pinStore = memoryResourceLogPinStore()
     const was = new WasClient({
-      serverUrl: spacesUrl({ baseUrl: serverUrl }),
+      baseServerUrl,
       zcapClient: client.zcapClient
     })
     const idStore = wasWebvhIdStore({ was, spaceId, pinStore })
-    const logPath = resourcePath(spaceId, ID_COLLECTION.id, 'did.jsonl')
+    const logPath = new URL(
+      resourceUrl({
+        spaceUrl: spaceUrlById({ baseServerUrl, spaceId }),
+        collectionId: ID_COLLECTION.id,
+        resourceId: 'did.jsonl'
+      })
+    ).pathname
 
     /**
      * The account log as the server serves it now, verified under this
@@ -121,8 +127,6 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
     async function verified() {
       return verifyAccountLog({
         did: accountDid,
-        spaceId,
-        host: serverUrl,
         pinStore
       })
     }
@@ -166,7 +170,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
       const { doc, log } = await verified()
       return runClientAnnexGc({
         was,
-        wasServerUrl: serverUrl,
+        baseServerUrl,
         accountSpaceId: spaceId,
         account: { did: accountDid, doc, log },
         idStore,

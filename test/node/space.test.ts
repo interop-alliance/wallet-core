@@ -268,10 +268,10 @@ describe('space collection ids + specs', () => {
 })
 
 describe('publicCredentialUrl', () => {
-  it('derives {serverUrl}/space/{spaceId}/public-credentials/{cid}', () => {
+  it('derives {baseServerUrl}space/{spaceId}/public-credentials/{cid}', () => {
     expect(
       publicCredentialUrl({
-        serverUrl: 'https://storage.example',
+        baseServerUrl: 'https://storage.example',
         spaceId: 'SPACE',
         cid: 'CID'
       })
@@ -283,7 +283,7 @@ describe('publicCredentialUrl', () => {
     // client writes under survives into the shared link.
     expect(
       publicCredentialUrl({
-        serverUrl: 'https://storage.example/ignored/',
+        baseServerUrl: 'https://storage.example/ignored/',
         spaceId: 'S',
         cid: 'C'
       })
@@ -293,7 +293,7 @@ describe('publicCredentialUrl', () => {
   it('percent-encodes path segments', () => {
     expect(
       publicCredentialUrl({
-        serverUrl: 'https://storage.example',
+        baseServerUrl: 'https://storage.example',
         spaceId: 'S',
         cid: 'a b'
       })

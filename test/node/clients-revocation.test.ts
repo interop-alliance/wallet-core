@@ -787,7 +787,7 @@ describe('revokeAccountClient chain-head pin', () => {
     const founder = await newClient()
     await ensureDidWebvh({
       idStore,
-      wasServerUrl: 'http://localhost:8080',
+      baseServerUrl: 'http://localhost:8080',
       spaceId: ACCOUNT_SPACE_ID,
       clientKeys: {
         signingKeyMultibase: founder.keys.signingKeyMultibase,

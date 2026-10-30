@@ -111,7 +111,7 @@ describe('getUnlockKeyring', () => {
     const requests = stubFetch({ status: 200, body: RECORD })
     await expect(
       getUnlockKeyring({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: unlock.zcapClient,
         spaceId: UNLOCK_SPACE_ID
       })
@@ -141,7 +141,7 @@ describe('getUnlockKeyring', () => {
     )
     await expect(
       getUnlockKeyring({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: unlock.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         serviceDescription: serviceDescriptionFor(WAS_URL)
@@ -155,7 +155,7 @@ describe('getUnlockKeyring', () => {
     const requests = stubFetch({ status: 200, body: RECORD })
     await expect(
       getUnlockKeyring({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: client.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         capability
@@ -171,7 +171,7 @@ describe('getUnlockKeyring', () => {
     stubFetch({ status: 404 })
     await expect(
       getUnlockKeyring({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: client.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         capability
@@ -190,7 +190,7 @@ describe('getUnlockKeyringWithEtag', () => {
     const requests = stubFetch({ status: 200, body: RECORD, etag: '"v7"' })
     await expect(
       getUnlockKeyringWithEtag({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: client.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         capability
@@ -206,7 +206,7 @@ describe('getUnlockKeyringWithEtag', () => {
     stubFetch({ status: 200, body: RECORD })
     await expect(
       getUnlockKeyringWithEtag({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: unlock.zcapClient,
         spaceId: UNLOCK_SPACE_ID
       })
@@ -218,7 +218,7 @@ describe('getUnlockKeyringWithEtag', () => {
     stubFetch({ status: 404 })
     await expect(
       getUnlockKeyringWithEtag({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: unlock.zcapClient,
         spaceId: UNLOCK_SPACE_ID
       })
@@ -235,13 +235,13 @@ describe('putUnlockKeyring', () => {
     const { unlock, client, capability } = await delegatedFixture()
     const requests = stubFetch({ status: 204 })
     await putUnlockKeyring({
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       zcapClient: unlock.zcapClient,
       spaceId: UNLOCK_SPACE_ID,
       record: RECORD
     })
     await putUnlockKeyring({
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       zcapClient: client.zcapClient,
       spaceId: UNLOCK_SPACE_ID,
       record: RECORD,
@@ -265,7 +265,7 @@ describe('putUnlockKeyring', () => {
     const requests = stubFetch({ status: 204, etag: '"v8"' })
     await expect(
       putUnlockKeyring({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: client.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         record: RECORD,
@@ -285,7 +285,7 @@ describe('putUnlockKeyring', () => {
     stubFetch({ status: 412 })
     await expect(
       putUnlockKeyring({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: unlock.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         record: RECORD,
@@ -321,7 +321,7 @@ describe('ensureUnlockSpace', () => {
       })
     )
     await ensureUnlockSpace({
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       zcapClient: unlock.zcapClient,
       spaceId: UNLOCK_SPACE_ID,
       controller: unlock.keyAgent.id

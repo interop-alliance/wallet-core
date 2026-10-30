@@ -34,6 +34,7 @@ import {
   type DocCipher,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv/cipher'
+import { canonicalSpaceUrl } from '@interop/was-client/paths'
 import { KEYRING_COLLECTION } from '../space/systemCollections.js'
 
 /**
@@ -354,15 +355,17 @@ export function parseRecordFrame({
 
 /**
  * The account pointer a keyring record carries in place of the retired data
- * seed: where the account lives (`spaceId` + `host`, the WAS server's base
- * URL, which carries a base path when the server is deployed under a
- * sub-path) and, once provisioning has published it, the account's stable
- * did:webvh id. Discovery only -- holding the pointer authorizes nothing.
+ * seed: the account's data Space URL (`spaceUrl`, under which the base
+ * server URL is the parent of its `space` segment) and, once provisioning
+ * has published it, the account's stable did:webvh id. The DID locates its
+ * own log and server, so once it is present the Space URL is a cache of
+ * what the DID resolves to; until then it is the one locator the
+ * credential-anchored establishment re-runs against. Discovery only --
+ * holding the pointer authorizes nothing.
  */
 export interface AccountPointer {
   did?: string
-  spaceId: string
-  host: string
+  spaceUrl: string
 }
 
 /**
@@ -443,19 +446,22 @@ export function parseRecordPointer(value: unknown): AccountPointer | undefined {
   if (value === null || typeof value !== 'object') {
     throw new Error('Keyring record has a malformed account pointer.')
   }
-  const { did, spaceId, host } = value as {
-    did?: unknown
-    spaceId?: unknown
-    host?: unknown
+  const { did, spaceUrl } = value as { did?: unknown; spaceUrl?: unknown }
+  if (typeof spaceUrl !== 'string' || !spaceUrl) {
+    throw new Error('Keyring record account pointer is missing its spaceUrl.')
   }
-  if (typeof spaceId !== 'string' || !spaceId) {
-    throw new Error('Keyring record account pointer is missing its spaceId.')
-  }
-  if (typeof host !== 'string' || !host) {
-    throw new Error('Keyring record account pointer is missing its host.')
+  try {
+    canonicalSpaceUrl(spaceUrl)
+  } catch (err) {
+    throw new Error(
+      'Keyring record account pointer has a malformed spaceUrl.',
+      {
+        cause: err
+      }
+    )
   }
   if (did !== undefined && (typeof did !== 'string' || !did)) {
     throw new Error('Keyring record account pointer has a malformed did.')
   }
-  return { ...(did ? { did } : {}), spaceId, host }
+  return { ...(did ? { did } : {}), spaceUrl }
 }

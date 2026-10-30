@@ -382,7 +382,7 @@ export interface ClientAnnexGenerationSwap {
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an
  *   enrolled client (root tier on both the account and auxiliary Spaces)
- * @param options.wasServerUrl {string}   the account pointer's host
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.accountSpaceId {string}   the ACCOUNT Space's id (the
  *   generation delegation's target subtree)
  * @param options.account {object}   the VERIFIED account log
@@ -413,7 +413,7 @@ export interface ClientAnnexGenerationSwap {
  */
 export async function runClientAnnexGc({
   was,
-  wasServerUrl,
+  baseServerUrl,
   accountSpaceId,
   account,
   idStore,
@@ -425,7 +425,7 @@ export async function runClientAnnexGc({
   now = Date.now()
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   idStore: WebvhIdStore
@@ -537,7 +537,7 @@ export async function runClientAnnexGc({
       swapWrote = true
       await replaceClientAnnexGeneration({
         was,
-        wasServerUrl,
+        baseServerUrl,
         accountSpaceId,
         account: head,
         idStore,
@@ -720,7 +720,7 @@ async function readClientAnnexGeneration({
  */
 async function replaceClientAnnexGeneration({
   was,
-  wasServerUrl,
+  baseServerUrl,
   accountSpaceId,
   account,
   idStore,
@@ -734,7 +734,7 @@ async function replaceClientAnnexGeneration({
   now
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc'>
   idStore: WebvhIdStore
@@ -762,7 +762,7 @@ async function replaceClientAnnexGeneration({
   })
   const minted = await mintCredentialClientAnnexGeneration({
     was,
-    wasServerUrl,
+    baseServerUrl,
     spaceId: clientAnnexSpaceId,
     controller: account.did,
     ladderSeed,
@@ -793,7 +793,7 @@ async function replaceClientAnnexGeneration({
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient,
-        wasServerUrl,
+        baseServerUrl,
         spaceId: accountSpaceId,
         clientAnnexDid,
         now
@@ -911,7 +911,7 @@ async function replaceClientAnnexGeneration({
  * ceremony over a fresh read.
  *
  * @param options {object}   see {@link runClientAnnexGc} for the shared
- *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
+ *   members ({ was, baseServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
  * @param options.retiredLadderSeeds {Uint8Array[] | 'unnamed'}   the ladder
@@ -927,7 +927,7 @@ async function replaceClientAnnexGeneration({
  */
 export async function swapClientAnnexGeneration({
   was,
-  wasServerUrl,
+  baseServerUrl,
   accountSpaceId,
   account,
   idStore,
@@ -938,7 +938,7 @@ export async function swapClientAnnexGeneration({
   now = Date.now()
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc'>
   idStore: WebvhIdStore
@@ -974,7 +974,7 @@ export async function swapClientAnnexGeneration({
   })
   return replaceClientAnnexGeneration({
     was,
-    wasServerUrl,
+    baseServerUrl,
     accountSpaceId,
     account,
     idStore,

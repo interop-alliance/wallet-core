@@ -14,12 +14,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import {
+  resourceUrl,
   rootCapabilityId,
-  spaceMeta,
-  spacePath,
-  toUrl
+  spaceMetaUrl,
+  spaceUrlById
 } from '@interop/was-client/paths'
-import { resourcePath } from '@interop/was-client/paths'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   DELETION_ZCAP_TTL_MS,
@@ -193,13 +192,13 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
     }
 
     expect(child.invocationTarget).toBe(
-      toUrl({
-        baseUrl: WAS_URL,
-        path: resourcePath(
-          UNLOCK_SPACE_ID,
-          KEYRING_COLLECTION.id,
-          KEYRING_RESOURCE
-        )
+      resourceUrl({
+        spaceUrl: spaceUrlById({
+          baseServerUrl: WAS_URL,
+          spaceId: UNLOCK_SPACE_ID
+        }),
+        collectionId: KEYRING_COLLECTION.id,
+        resourceId: KEYRING_RESOURCE
       })
     )
     expect(child.allowedAction).toEqual(['GET'])
@@ -403,7 +402,7 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
     const ladderKey = `did:key:z${'y'.repeat(10)}`
     const child = (await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(ladderSeed),
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       verb: 'DELETE',
       controller: ladderKey,
@@ -415,9 +414,9 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
       proof: { verificationMethod: string; capabilityChain: unknown[] }
     }
 
-    const spaceUrl = toUrl({
-      baseUrl: WAS_URL,
-      path: spacePath(ACCOUNT_SPACE_ID)
+    const spaceUrl = spaceUrlById({
+      baseServerUrl: WAS_URL,
+      spaceId: ACCOUNT_SPACE_ID
     })
     expect(spaceUrl).toBe(`${WAS_URL}/space/${ACCOUNT_SPACE_ID}/`)
     // The DELETE child restates its root's target rather than narrowing it.
@@ -439,7 +438,7 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
   it('narrows the GET-only probe child to the Space Metadata object', async () => {
     const child = (await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(fixedSeed(11)),
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       verb: 'GET',
       controller: ACCOUNT_DID
@@ -450,14 +449,19 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
     // the probe names it exactly. The chain still roots in the Space's own
     // root capability, so the child narrows its root's target.
     expect(child.invocationTarget).toBe(
-      toUrl({ baseUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) })
+      spaceMetaUrl({
+        spaceUrl: spaceUrlById({
+          baseServerUrl: WAS_URL,
+          spaceId: ACCOUNT_SPACE_ID
+        })
+      })
     )
     expect(child.invocationTarget).toBe(
       `${WAS_URL}/space/${ACCOUNT_SPACE_ID}/meta`
     )
     expect(child.parentCapability).toBe(
       rootCapabilityId(
-        toUrl({ baseUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
+        spaceUrlById({ baseServerUrl: WAS_URL, spaceId: ACCOUNT_SPACE_ID })
       )
     )
   })
@@ -504,7 +508,7 @@ describe('deleteSpaceWithCapability', () => {
     const invoker = await agentsFromSeed({ seed: fixedSeed(3) })
     const capability = await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(fixedSeed(11)),
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       verb: 'DELETE',
       controller: invoker.keyAgent.id
@@ -516,7 +520,7 @@ describe('deleteSpaceWithCapability', () => {
     const { invoker, capability } = await deleteFixture()
     const requests = stubFetch({ status: 204 })
     const result = await deleteSpaceWithCapability({
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       zcapClient: invoker.zcapClient,
       spaceId: ACCOUNT_SPACE_ID,
       capability
@@ -536,7 +540,7 @@ describe('deleteSpaceWithCapability', () => {
     stubFetch({ status: 404 })
     await expect(
       deleteSpaceWithCapability({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: invoker.zcapClient,
         spaceId: ACCOUNT_SPACE_ID,
         capability
@@ -549,7 +553,7 @@ describe('deleteSpaceWithCapability', () => {
     stubFetch({ status: 500 })
     await expect(
       deleteSpaceWithCapability({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: invoker.zcapClient,
         spaceId: ACCOUNT_SPACE_ID,
         capability
@@ -561,7 +565,7 @@ describe('deleteSpaceWithCapability', () => {
     const invoker = await agentsFromSeed({ seed: fixedSeed(3) })
     const capability = await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(fixedSeed(11)),
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: UNLOCK_SPACE_ID,
       verb: 'DELETE',
       controller: invoker.keyAgent.id
@@ -569,7 +573,7 @@ describe('deleteSpaceWithCapability', () => {
     stubFetch({ status: 404 })
     await expect(
       deleteUnlockSpace({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: invoker.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         capability
@@ -582,7 +586,7 @@ describe('deleteSpaceWithCapability', () => {
     const requests = stubFetch({ status: 204 })
     await expect(
       deleteUnlockSpace({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         zcapClient: invoker.zcapClient,
         spaceId: UNLOCK_SPACE_ID
       })
@@ -599,40 +603,47 @@ describe('spaceVerbTarget', () => {
   it('names the Space container for DELETE, POST and PUT, the Metadata object for GET', () => {
     expect(
       spaceVerbTarget({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: UNLOCK_SPACE_ID,
         verb: 'DELETE'
       })
-    ).toBe(toUrl({ baseUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
+    ).toBe(spaceUrlById({ baseServerUrl: WAS_URL, spaceId: UNLOCK_SPACE_ID }))
     expect(
       spaceVerbTarget({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: UNLOCK_SPACE_ID,
         verb: 'GET'
       })
-    ).toBe(toUrl({ baseUrl: WAS_URL, path: spaceMeta(UNLOCK_SPACE_ID) }))
+    ).toBe(
+      spaceMetaUrl({
+        spaceUrl: spaceUrlById({
+          baseServerUrl: WAS_URL,
+          spaceId: UNLOCK_SPACE_ID
+        })
+      })
+    )
     for (const verb of ['POST', 'PUT'] as const) {
       expect(
         spaceVerbTarget({
-          storageServerUrl: WAS_URL,
+          baseServerUrl: WAS_URL,
           spaceId: UNLOCK_SPACE_ID,
           verb
         })
-      ).toBe(toUrl({ baseUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
+      ).toBe(spaceUrlById({ baseServerUrl: WAS_URL, spaceId: UNLOCK_SPACE_ID }))
     }
   })
 
   it('is the target the two-link mint names, so a caller need not re-derive it', async () => {
     const child = (await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(fixedSeed(11)),
-      storageServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       verb: 'GET',
       controller: ACCOUNT_DID
     })) as IZcap
     expect(child.invocationTarget).toBe(
       spaceVerbTarget({
-        storageServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         verb: 'GET'
       })
@@ -660,13 +671,13 @@ describe('mintUnlockKeyringReadCapability', () => {
     }
 
     expect(child.invocationTarget).toBe(
-      toUrl({
-        baseUrl: WAS_URL,
-        path: resourcePath(
-          UNLOCK_SPACE_ID,
-          KEYRING_COLLECTION.id,
-          KEYRING_RESOURCE
-        )
+      resourceUrl({
+        spaceUrl: spaceUrlById({
+          baseServerUrl: WAS_URL,
+          spaceId: UNLOCK_SPACE_ID
+        }),
+        collectionId: KEYRING_COLLECTION.id,
+        resourceId: KEYRING_RESOURCE
       })
     )
     expect(child.allowedAction).toEqual(['GET'])

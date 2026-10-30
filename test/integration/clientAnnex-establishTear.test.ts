@@ -23,7 +23,7 @@
  *   and adopts. The run converges within itself.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { resourcePath } from '@interop/was-client/paths'
+import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
 
 import { setLogger } from '../../src/log.js'
 import { ID_COLLECTION } from '../../src/space/index.js'
@@ -73,6 +73,24 @@ describe('the credential-anchored establishment torn by a dropped response', () 
   })
 
   /**
+   * The server-side path of the account log in a Space: what the fault
+   * seam records and matches.
+   *
+   * @param options {object}
+   * @param options.spaceId {string}
+   * @returns {string}
+   */
+  function logPathOf({ spaceId }: { spaceId: string }) {
+    return new URL(
+      resourceUrl({
+        spaceUrl: spaceUrlById({ baseServerUrl: server.serverUrl, spaceId }),
+        collectionId: ID_COLLECTION.id,
+        resourceId: 'did.jsonl'
+      })
+    ).pathname
+  }
+
+  /**
    * The account log as the server serves it to anyone (the `id` collection is
    * world-readable): its first line, the genesis entry, and the DID it names.
    *
@@ -104,11 +122,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
 
   it('converges a run torn on every attempt by re-running it', async () => {
     const credential = await mintCredential()
-    const logPath = resourcePath(
-      credential.spaceId,
-      ID_COLLECTION.id,
-      'did.jsonl'
-    )
+    const logPath = logPathOf({ spaceId: credential.spaceId })
     const capture = captureStageEvents()
     try {
       server.faults.dropResponse({
@@ -116,7 +130,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
         times: Infinity
       })
       await expect(
-        establishAccount({ serverUrl: server.serverUrl, credential })
+        establishAccount({ baseServerUrl: server.serverUrl, credential })
       ).rejects.toMatchObject({ cause: expect.any(TypeError) })
 
       // The genesis entry landed. Every retry the HTTP client sent after it
@@ -133,7 +147,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
       server.faults.reset()
       capture.stages.length = 0
       const account = await establishAccount({
-        serverUrl: server.serverUrl,
+        baseServerUrl: server.serverUrl,
         credential
       })
       expect(account.accountDid).toBe(landed.did)
@@ -156,16 +170,12 @@ describe('the credential-anchored establishment torn by a dropped response', () 
 
   it('converges a single dropped response within the run', async () => {
     const credential = await mintCredential()
-    const logPath = resourcePath(
-      credential.spaceId,
-      ID_COLLECTION.id,
-      'did.jsonl'
-    )
+    const logPath = logPathOf({ spaceId: credential.spaceId })
     const capture = captureStageEvents()
     try {
       server.faults.dropResponse({ match: { method: 'PUT', path: logPath } })
       const account = await establishAccount({
-        serverUrl: server.serverUrl,
+        baseServerUrl: server.serverUrl,
         credential
       })
 

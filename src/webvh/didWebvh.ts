@@ -10,8 +10,11 @@
  * The log (`did.jsonl`) is one more WAS Resource in the world-readable `id`
  * collection (which carries a collection-level `PublicCanRead` policy), so
  * hosting needs zero server changes:
- * `did:webvh:<scid>:<host>:space:<spaceId>:id` resolves to
- * `https://<host>/space/<spaceId>/id/did.jsonl`. Adopting the parallel
+ * `did:webvh:<scid>:<host>:<prefix...>:space:<spaceId>:id` resolves to
+ * `https://<host>/<prefix>/space/<spaceId>/id/did.jsonl`, where the prefix
+ * segments are the base server URL's path (none for an origin-root base),
+ * so the DID locates its own log and its own server
+ * ({@link didWebvhLogLocation}). Adopting the parallel
  * `webDoc` (`did:web:` projection with `alsoKnownAs` cross-links) as the new
  * `did.json` makes the log the single source of truth.
  *
@@ -69,7 +72,6 @@ import {
   logToJsonlString,
   readLogFromString,
   resolveDIDFromLog,
-  SCID_PLACEHOLDER,
   signerFromExternalKey,
   updateDID
 } from '@interop/did-method-webvh'
@@ -100,6 +102,7 @@ import {
   type ResourceLogPinStore
 } from '@interop/vh-resource-log'
 import { putDidWebProjection } from './didWebProjection.js'
+import { didWebvhControllerTemplate, didWebvhLogPaths } from './logLocation.js'
 import type { DidWebProjectionStore } from './didWebProjection.js'
 import type { RelationMembership } from './mergeMethods.js'
 import { multibaseOf } from './didWeb.js'
@@ -668,33 +671,11 @@ export interface KmsAuthenticationBinding {
   etag?: string
 }
 
-/**
- * The `did:webvh:{SCID}:<host>:space:<spaceId>:<collectionId>` controller
- * template, with the literal `{SCID}` placeholder the library replaces at
- * creation. The host segment percent-encodes a port (`localhost:8080` becomes
- * `localhost%3A8080`), matching the library's `toDidDomainComponent`. The
- * collection defaults to the account log's `id` collection; a client-annex
- * generation's log passes its own `gen-` generation id.
- *
- * @param options {object}
- * @param options.wasServerUrl {string}
- * @param options.spaceId {string}
- * @param [options.collectionId] {string}   the collection holding `did.jsonl`
- *   (defaults to the `id` collection)
- * @returns {string}
- */
-export function didWebvhControllerTemplate({
-  wasServerUrl,
-  spaceId,
-  collectionId = ID_COLLECTION.id
-}: {
-  wasServerUrl: string
-  spaceId: string
-  collectionId?: string
-}): string {
-  const { host } = new URL(wasServerUrl)
-  return `did:webvh:${SCID_PLACEHOLDER}:${encodeURIComponent(host)}:space:${spaceId}:${collectionId}`
-}
+export {
+  didWebvhControllerTemplate,
+  didWebvhLogLocation,
+  didWebvhLogPaths
+} from './logLocation.js'
 
 /**
  * Mints a fresh pair of client-held update-key seeds (active + staged) for a
@@ -949,7 +930,7 @@ export interface CreatedWebvhLog {
  * the staged key.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
  *   genesis
@@ -962,7 +943,7 @@ export interface CreatedWebvhLog {
  * @returns {Promise<CreatedWebvhLog>}
  */
 async function createWebvhLog({
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   didWebKeys,
   clientKeys,
@@ -971,7 +952,7 @@ async function createWebvhLog({
   nextKeyHashes,
   signer
 }: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMap
   clientKeys?: WebvhClientKeys
@@ -983,9 +964,8 @@ async function createWebvhLog({
   nextKeyHashes: string[]
   signer: Signer
 }): Promise<CreatedWebvhLog> {
-  const { host } = new URL(wasServerUrl)
   const controllerTemplate = didWebvhControllerTemplate({
-    wasServerUrl,
+    baseServerUrl,
     spaceId
   })
   const {
@@ -1003,8 +983,8 @@ async function createWebvhLog({
   })
 
   const result = await createDID({
-    address: host,
-    paths: ['space', spaceId, ID_COLLECTION.id],
+    address: baseServerUrl,
+    paths: didWebvhLogPaths({ spaceId, collectionId: ID_COLLECTION.id }),
     additionalContext: [BYOE_CONTEXT_URL],
     signer,
     updateKeys: [updateKeyPublicKeyMultibase],
@@ -1090,7 +1070,7 @@ export async function genesisNextKeyHashes({
  * export is the document machinery.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a KMS-less genesis
  * @param options.ladderVmKeyMultibase {string}   the credential's ladder VM
@@ -1103,7 +1083,7 @@ export async function genesisNextKeyHashes({
  * @returns {Promise<CreatedWebvhLog>}
  */
 export async function createLadderAnchoredWebvhLog({
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   didWebKeys,
   ladderVmKeyMultibase,
@@ -1112,7 +1092,7 @@ export async function createLadderAnchoredWebvhLog({
   nextKeyHashes,
   signer
 }: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMap
   ladderVmKeyMultibase: string
@@ -1122,7 +1102,7 @@ export async function createLadderAnchoredWebvhLog({
   signer: Signer
 }): Promise<CreatedWebvhLog> {
   return createWebvhLog({
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
     ladderVm: {
@@ -1916,7 +1896,7 @@ function advancedSeeds({
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json (with any
  *   webvh block) returned by the KMS-authentication stage; absent on a
@@ -1932,7 +1912,7 @@ function advancedSeeds({
  */
 export async function ensureDidWebvh(options: {
   idStore: WebvhIdStore
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
   keysJsonEtag?: string
@@ -1951,7 +1931,7 @@ export async function ensureDidWebvh(options: {
  */
 async function ensureDidWebvhOnce({
   idStore,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   didWebKeys,
   keysJsonEtag,
@@ -1960,7 +1940,7 @@ async function ensureDidWebvhOnce({
   expectedDid
 }: {
   idStore: WebvhIdStore
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
   keysJsonEtag?: string
@@ -2016,7 +1996,7 @@ async function ensureDidWebvhOnce({
 
   const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
   const created = await createWebvhLog({
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     didWebKeys,
     clientKeys,

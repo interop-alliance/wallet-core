@@ -30,6 +30,7 @@ import {
   clientAdditionFields,
   clientKeyAgreementController,
   didWebvhControllerTemplate,
+  didWebvhLogLocation,
   ensureDidWebvh,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
@@ -122,17 +123,124 @@ describe('getFileUrl (library-owned did -> did.jsonl mapping)', () => {
 describe('didWebvhControllerTemplate', () => {
   it('percent-encodes a host with a port and keeps the {SCID} placeholder', () => {
     expect(
-      didWebvhControllerTemplate({ wasServerUrl: WAS_URL, spaceId: SPACE_ID })
+      didWebvhControllerTemplate({ baseServerUrl: WAS_URL, spaceId: SPACE_ID })
     ).toBe('did:webvh:{SCID}:localhost%3A8080:space:space-abc:id')
   })
 
   it('leaves a plain host unencoded', () => {
     expect(
       didWebvhControllerTemplate({
-        wasServerUrl: 'https://example.com',
+        baseServerUrl: 'https://example.com',
         spaceId: SPACE_ID
       })
     ).toBe('did:webvh:{SCID}:example.com:space:space-abc:id')
+  })
+
+  it('encodes an origin-root base the same with or without its slash', () => {
+    for (const baseServerUrl of [
+      'https://wallet.example',
+      'https://wallet.example/'
+    ]) {
+      expect(
+        didWebvhControllerTemplate({ baseServerUrl, spaceId: SPACE_ID })
+      ).toBe('did:webvh:{SCID}:wallet.example:space:space-abc:id')
+    }
+  })
+
+  it('encodes a sub-path base as colon segments ahead of the Space path', () => {
+    expect(
+      didWebvhControllerTemplate({
+        baseServerUrl: 'https://wallet.example/was/',
+        spaceId: SPACE_ID
+      })
+    ).toBe('did:webvh:{SCID}:wallet.example:was:space:space-abc:id')
+  })
+
+  it('names the collection holding the log, defaulting to `id`', () => {
+    expect(
+      didWebvhControllerTemplate({
+        baseServerUrl: 'https://wallet.example',
+        spaceId: SPACE_ID,
+        collectionId: 'gen-abc'
+      })
+    ).toBe('did:webvh:{SCID}:wallet.example:space:space-abc:gen-abc')
+  })
+})
+
+describe('didWebvhLogLocation', () => {
+  /**
+   * A DID minted from the template with a well-formed SCID in the
+   * placeholder's place, which is what `createDID` produces.
+   */
+  const didFor = (options: {
+    baseServerUrl: string
+    spaceId: string
+    collectionId?: string
+  }) => didWebvhControllerTemplate(options).replace('{SCID}', SCID)
+
+  it('reads the log URL, Space URL, Space id and base off an origin-root DID', () => {
+    const did = didFor({
+      baseServerUrl: 'https://wallet.example',
+      spaceId: SPACE_ID
+    })
+    expect(did).toBe(`did:webvh:${SCID}:wallet.example:space:space-abc:id`)
+    expect(didWebvhLogLocation({ did })).toEqual({
+      logUrl: 'https://wallet.example/space/space-abc/id/did.jsonl',
+      spaceUrl: 'https://wallet.example/space/space-abc/',
+      spaceId: SPACE_ID,
+      baseServerUrl: 'https://wallet.example/',
+      collectionId: 'id'
+    })
+  })
+
+  it('keeps the port in every URL it reads off a localhost DID', () => {
+    const did = didFor({ baseServerUrl: WAS_URL, spaceId: SPACE_ID })
+    expect(did).toBe(`did:webvh:${SCID}:localhost%3A8080:space:space-abc:id`)
+    expect(didWebvhLogLocation({ did })).toEqual({
+      logUrl: 'http://localhost:8080/space/space-abc/id/did.jsonl',
+      spaceUrl: 'http://localhost:8080/space/space-abc/',
+      spaceId: SPACE_ID,
+      baseServerUrl: 'http://localhost:8080/',
+      collectionId: 'id'
+    })
+  })
+
+  it('reads the sub-path base back as the parent of the `space` segment', () => {
+    const did = didFor({
+      baseServerUrl: 'https://wallet.example/was/',
+      spaceId: SPACE_ID
+    })
+    expect(did).toBe(`did:webvh:${SCID}:wallet.example:was:space:space-abc:id`)
+    expect(didWebvhLogLocation({ did })).toEqual({
+      logUrl: 'https://wallet.example/was/space/space-abc/id/did.jsonl',
+      spaceUrl: 'https://wallet.example/was/space/space-abc/',
+      spaceId: SPACE_ID,
+      baseServerUrl: 'https://wallet.example/was/',
+      collectionId: 'id'
+    })
+  })
+
+  it('round-trips a client-annex generation collection', () => {
+    const did = didFor({
+      baseServerUrl: 'https://wallet.example/was/',
+      spaceId: SPACE_ID,
+      collectionId: 'gen-01J0'
+    })
+    expect(didWebvhLogLocation({ did })).toEqual({
+      logUrl: 'https://wallet.example/was/space/space-abc/gen-01J0/did.jsonl',
+      spaceUrl: 'https://wallet.example/was/space/space-abc/',
+      spaceId: SPACE_ID,
+      baseServerUrl: 'https://wallet.example/was/',
+      collectionId: 'gen-01J0'
+    })
+  })
+
+  it('agrees with the library-owned did.jsonl mapping', () => {
+    const did = didFor({
+      baseServerUrl: 'https://wallet.example/was/',
+      spaceId: SPACE_ID
+    })
+    expect(didWebvhLogLocation({ did }).logUrl).toBe(getFileUrl(did))
   })
 })
 
@@ -348,7 +456,7 @@ function webvhFakes({
       }
       versions.set(resourceId, (versions.get(resourceId) ?? 0) + 1)
     },
-    storageServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     pin: {
       store: memoryResourceLogPinStore(),
@@ -374,7 +482,7 @@ async function seedPublishedLog(updateKeys = fixedUpdateKeys()) {
   const fakes = webvhFakes()
   const { did } = await ensureDidWebvh({
     idStore: fakes.idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     didWebKeys: fakes.didWebKeys,
     clientKeys: CLIENT_KEYS,
@@ -389,7 +497,7 @@ describe('ensureDidWebvh', () => {
     await expect(
       ensureDidWebvh({
         idStore: fakes.idStore,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         didWebKeys: fakes.didWebKeys,
         clientKeys: {
@@ -409,7 +517,7 @@ describe('ensureDidWebvh', () => {
     const updateKeys = fixedUpdateKeys()
     const { did } = await ensureDidWebvh({
       idStore: fakes.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: fakes.didWebKeys,
       clientKeys: CLIENT_KEYS,
@@ -546,7 +654,7 @@ describe('ensureDidWebvh', () => {
 
     const result = await ensureDidWebvh({
       idStore: steady.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: steady.didWebKeys,
       clientKeys: CLIENT_KEYS,
@@ -570,7 +678,7 @@ describe('ensureDidWebvh', () => {
 
     const result = await ensureDidWebvh({
       idStore: adopting.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: adopting.didWebKeys,
       clientKeys: CLIENT_KEYS,
@@ -610,7 +718,7 @@ describe('ensureDidWebvh', () => {
     // The next ceremony no-ops on the log and republishes the projection.
     const result = await ensureDidWebvh({
       idStore: torn.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: torn.didWebKeys,
       clientKeys: CLIENT_KEYS,
@@ -638,7 +746,7 @@ describe('ensureDidWebvh', () => {
 
     const result = await ensureDidWebvh({
       idStore: adopting.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: adopting.didWebKeys,
       clientKeys: CLIENT_KEYS,
@@ -654,7 +762,7 @@ describe('ensureDidWebvh', () => {
     await expect(
       ensureDidWebvh({
         idStore: lost.idStore,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         didWebKeys: lost.didWebKeys,
         clientKeys: CLIENT_KEYS,
@@ -674,7 +782,7 @@ async function seedClientOnlyLog(updateKeys = fixedUpdateKeys()) {
   const fakes = webvhFakes()
   const { did } = await ensureDidWebvh({
     idStore: fakes.idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: CLIENT_KEYS,
     updateKeys
@@ -729,7 +837,7 @@ describe('ensureDidWebvh (client-keys-only genesis, no KMS)', () => {
 
     const result = await ensureDidWebvh({
       idStore: fakes.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       clientKeys: CLIENT_KEYS,
       updateKeys: fixedUpdateKeys()
@@ -1270,7 +1378,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     const updateKeys = fixedUpdateKeys()
     const signer = await seedSigner(updateKeys.updateSeed)
     const controllerTemplate = didWebvhControllerTemplate({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID
     })
     const legacy = await createDID({

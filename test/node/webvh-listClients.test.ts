@@ -70,7 +70,7 @@ async function accountWithRealFirstClient() {
   const firstRequest = parseEnrollmentRequest({ code: first.code })
   await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     didWebKeys: {
       authentication: {

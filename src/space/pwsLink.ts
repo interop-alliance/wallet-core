@@ -2,23 +2,28 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `was-link` QR hand-off payload -- the "Connect mobile wallet" flow where
+ * The `pws-link` QR hand-off payload -- the "Connect mobile wallet" flow where
  * the web wallet displays a QR that carries an account's controller secret and
  * the mobile wallet scans it.
  *
  * The payload is a NON-URL JSON blob (deliberately not a link, so the OS camera
  * app / deep-link handling never routes it and it cannot leak into browser
  * history or link-preview fetchers). It is accepted only by the in-app scanner.
- * Shape: `{ v: 1, t: 'was-link', serverUrl, secret: base64url(utf8(passphrase)) }`.
+ * Shape:
+ * `{ v: 1, t: 'pws-link', baseServerUrl, secret: base64url(utf8(passphrase)) }`.
+ * `baseServerUrl` is the server's base server URL, the one the receiving
+ * wallet builds its client from; the account itself is reached through the
+ * keyring record the secret unlocks, so the link carries no DID.
  */
 import { base64urlnopad } from '@scure/base'
 import { HumanReadableError } from './errors.js'
 
 /**
- * The decoded link: the WAS server plus the controller secret AS A STRING.
+ * The decoded link: the base server URL plus the controller secret AS A
+ * STRING.
  */
-export interface WasLinkPayload {
-  serverUrl: string
+export interface PwsLinkPayload {
+  baseServerUrl: string
   /**
    * The controller secret (already decoded back to the passphrase string).
    */
@@ -26,22 +31,22 @@ export interface WasLinkPayload {
 }
 
 /**
- * The `t` discriminator member every `was-link` payload carries.
+ * The `t` discriminator member every `pws-link` payload carries.
  */
-export const WAS_LINK_TYPE = 'was-link'
+export const PWS_LINK_TYPE = 'pws-link'
 
 /**
- * Whether some scanned or pasted text has a `was-link` payload's JSON shape.
+ * Whether some scanned or pasted text has a `pws-link` payload's JSON shape.
  * Matched structurally on the `t` member rather than by calling the parser,
  * so an unrelated JSON blob is not refused with a connection-code error
  * message. This is the recognizer a wallet hands `@interop/wallet-request`'s
- * input classifier for its `was-link` branch; whether the payload is valid
- * is {@link parseWasLinkPayload}'s answer.
+ * input classifier for its `pws-link` branch; whether the payload is valid
+ * is {@link parsePwsLinkPayload}'s answer.
  *
  * @param text {string}
  * @returns {boolean}
  */
-export function isWasLinkPayload(text: string): boolean {
+export function isPwsLinkPayload(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed.startsWith('{')) {
     return false
@@ -55,7 +60,7 @@ export function isWasLinkPayload(text: string): boolean {
   return (
     parsed !== null &&
     typeof parsed === 'object' &&
-    (parsed as { t?: unknown }).t === WAS_LINK_TYPE
+    (parsed as { t?: unknown }).t === PWS_LINK_TYPE
   )
 }
 
@@ -71,22 +76,23 @@ function stripPadding(value: string): string {
 }
 
 /**
- * Validates the scanned `serverUrl` before the wallet ever signs a request to
- * it. The code carries the controller secret in the clear, so a bad `serverUrl`
- * would let a crafted QR aim capability-signed requests (and the secret) at an
- * attacker-controlled or cleartext host. Requires a parseable `https:` URL;
- * plain `http:` is allowed ONLY for loopback dev hosts.
+ * Validates the scanned `baseServerUrl` before the wallet ever signs a
+ * request to it. The code carries the controller secret in the clear, so a
+ * bad base would let a crafted QR aim capability-signed requests (and the
+ * secret) at an attacker-controlled or cleartext host. Requires a parseable
+ * `https:` URL; plain `http:` is allowed ONLY for loopback dev hosts.
  *
  * This is a scheme/host rule, not an allowlist: the payload carries its own
- * `serverUrl`, and there is no app-configured set of permitted servers to inject
- * -- a connection code names the storage server the user is joining. If a
- * consuming app later needs to constrain the host further, that check belongs at
- * the call site, on the returned {@link WasLinkPayload.serverUrl}.
+ * base server URL, and there is no app-configured set of permitted servers
+ * to inject -- a connection code names the storage server the user is
+ * joining. If a consuming app later needs to constrain the host further, that
+ * check belongs at the call site, on the returned
+ * {@link PwsLinkPayload.baseServerUrl}.
  */
-function assertValidServerUrl(serverUrl: string): void {
+function assertValidBaseServerUrl(baseServerUrl: string): void {
   let url: URL
   try {
-    url = new URL(serverUrl)
+    url = new URL(baseServerUrl)
   } catch {
     throw new HumanReadableError(BAD_SERVER)
   }
@@ -108,43 +114,43 @@ function assertValidServerUrl(serverUrl: string): void {
  * @param passphrase {string}
  * @returns {string}
  */
-export function encodeWasLinkSecret(passphrase: string): string {
+export function encodePwsLinkSecret(passphrase: string): string {
   return base64urlnopad.encode(new TextEncoder().encode(passphrase))
 }
 
 /**
- * Builds the full `was-link` payload string a QR encodes.
+ * Builds the full `pws-link` payload string a QR encodes.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.passphrase {string}
  * @returns {string}
  */
-export function buildWasLinkPayload({
-  serverUrl,
+export function buildPwsLinkPayload({
+  baseServerUrl,
   passphrase
 }: {
-  serverUrl: string
+  baseServerUrl: string
   passphrase: string
 }): string {
   return JSON.stringify({
     v: 1,
-    t: WAS_LINK_TYPE,
-    serverUrl,
-    secret: encodeWasLinkSecret(passphrase)
+    t: PWS_LINK_TYPE,
+    baseServerUrl,
+    secret: encodePwsLinkSecret(passphrase)
   })
 }
 
 /**
- * Parses and validates a scanned payload, returning the server URL and the
+ * Parses and validates a scanned payload, returning the base server URL and the
  * decoded string secret. Throws {@link HumanReadableError} for anything that is
- * not a valid current-version `was-link` payload (so the scanner shows a clean
+ * not a valid current-version `pws-link` payload (so the scanner shows a clean
  * message rather than mis-handling an unrelated QR).
  *
  * @param raw {string}   the raw scanned code value
- * @returns {WasLinkPayload}
+ * @returns {PwsLinkPayload}
  */
-export function parseWasLinkPayload(raw: string): WasLinkPayload {
+export function parsePwsLinkPayload(raw: string): PwsLinkPayload {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -155,8 +161,8 @@ export function parseWasLinkPayload(raw: string): WasLinkPayload {
     throw new HumanReadableError(NOT_A_LINK)
   }
 
-  const { v, t, serverUrl, secret } = parsed as Record<string, unknown>
-  if (t !== WAS_LINK_TYPE) {
+  const { v, t, baseServerUrl, secret } = parsed as Record<string, unknown>
+  if (t !== PWS_LINK_TYPE) {
     throw new HumanReadableError(NOT_A_LINK)
   }
   if (v !== 1) {
@@ -164,10 +170,10 @@ export function parseWasLinkPayload(raw: string): WasLinkPayload {
       'This connection code is from a newer app version. Please update.'
     )
   }
-  if (typeof serverUrl !== 'string' || serverUrl.length === 0) {
+  if (typeof baseServerUrl !== 'string' || baseServerUrl.length === 0) {
     throw new HumanReadableError('Connection code is missing its server.')
   }
-  assertValidServerUrl(serverUrl)
+  assertValidBaseServerUrl(baseServerUrl)
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new HumanReadableError('Connection code is missing its secret.')
   }
@@ -184,5 +190,5 @@ export function parseWasLinkPayload(raw: string): WasLinkPayload {
     throw new HumanReadableError('Connection code has an empty secret.')
   }
 
-  return { serverUrl, secret: secretText }
+  return { baseServerUrl, secret: secretText }
 }

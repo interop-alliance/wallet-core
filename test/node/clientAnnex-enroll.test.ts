@@ -93,7 +93,7 @@ async function clientAnnexFixture() {
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
   const created = await createClientAnnexLog({
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     generationId,
     updateKeyPublicKeyMultibase: rungA.keyMultibase,
@@ -441,10 +441,10 @@ describe('the delegated-clients service entry', () => {
     }
   )
 
-  it('parses the host, Space id and generation id out of a client annex DID', async () => {
+  it('parses the Space location, Space id and generation id out of a client annex DID', async () => {
     const { did, generationId } = await clientAnnexFixture()
     expect(clientAnnexDidParts({ did })).toEqual({
-      host: new URL(WAS_URL).host,
+      spaceLocation: `${new URL(WAS_URL).host}:space:${SPACE_ID}`,
       spaceId: SPACE_ID,
       generationId
     })
@@ -470,7 +470,7 @@ describe('setDelegatedClientsPointer', () => {
     }
     const { did } = await ensureDidWebvh({
       idStore: fixture.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: 'account-space-1',
       clientKeys: CANONICAL_CLIENT_KEYS[0]!,
       updateKeys

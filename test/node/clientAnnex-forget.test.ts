@@ -122,7 +122,7 @@ async function forgetFixture() {
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
     updateKeys
@@ -474,7 +474,7 @@ describe('forgetEnrolledClient', () => {
     const updateKeys = mintClientWebvhUpdateKeys()
     const { did } = await ensureDidWebvh({
       idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
       updateKeys

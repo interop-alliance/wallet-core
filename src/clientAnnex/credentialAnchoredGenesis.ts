@@ -117,7 +117,7 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  * @param options {object}
  * @param options.was {WasClient}   signing as the ladder VM's bare did:key
  *   (the bootstrap controller; build it over `ladderVmAgent`)
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed,
  *   already sealed into the durably written unlock record
@@ -214,7 +214,7 @@ export async function ensureCredentialAnchoredAccountGenesis(
  */
 export async function credentialAnchoredAccountGenesisCore({
   was,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   ladderSeed,
   keyAgreement,
@@ -231,7 +231,7 @@ export async function credentialAnchoredAccountGenesisCore({
   events
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
@@ -307,7 +307,7 @@ export async function credentialAnchoredAccountGenesisCore({
   // enrolled-client stage.
   const { did, published, logMinted } = await ensureLadderAnchoredDidWebvh({
     idStore,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
     ...(kmsAuthentication.binding?.etag !== undefined && {

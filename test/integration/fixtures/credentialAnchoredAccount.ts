@@ -23,7 +23,7 @@
  */
 import { WasClient } from '@interop/was-client'
 import { agentsFromSeed } from '@interop/was-client/identity'
-import { resourcePath, spacesUrl } from '@interop/was-client/paths'
+import { resourceUrl } from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
@@ -87,7 +87,7 @@ export function bridgeLogStore({
   pinStore: ResourceLogPinStore
 }) {
   return delegatedWebvhLogStore({
-    host: account.serverUrl,
+    baseServerUrl: account.baseServerUrl,
     spaceId: account.spaceId,
     collectionId: ID_COLLECTION.id,
     delegation: account.bridge,
@@ -115,24 +115,18 @@ export async function transientVisit({
 }: {
   account: EstablishedAccount
 }) {
-  const { serverUrl, spaceId, accountDid, annexSpaceId, ladderSeed } = account
+  const { baseServerUrl, spaceId, accountDid, annexSpaceId, ladderSeed } =
+    account
   const pinStore = memoryResourceLogPinStore()
   const { keyAgent } = await agentsFromSeed({
     seed: crypto.getRandomValues(new Uint8Array(32))
   })
   const enrolled = await enrollTransientClient({
     readAccountDocument: async () =>
-      (
-        await verifyAccountLog({
-          did: accountDid,
-          spaceId,
-          host: serverUrl,
-          pinStore
-        })
-      ).doc,
+      (await verifyAccountLog({ did: accountDid, pinStore })).doc,
     storeForGenerationId: generationId =>
       delegatedWebvhLogStore({
-        host: serverUrl,
+        baseServerUrl,
         spaceId: annexSpaceId,
         collectionId: generationId,
         delegation: account.sibling,
@@ -149,10 +143,7 @@ export async function transientVisit({
     throw new Error('fixture: the generation carries no delegation')
   }
   const zcapClient = webvhZcapClient({ keyAgent, did: enrolled.clientAnnexDid })
-  const was = new WasClient({
-    serverUrl: spacesUrl({ baseUrl: serverUrl }),
-    zcapClient
-  })
+  const was = new WasClient({ baseServerUrl, zcapClient })
   return {
     clientAnnexDid: enrolled.clientAnnexDid,
     generationDelegation,
@@ -160,11 +151,11 @@ export async function transientVisit({
     pinStore,
     readRoster: async () => {
       const response = await was.request({
-        path: resourcePath(
-          spaceId,
-          KEY_MAP_COLLECTION.id,
-          USER_KEY_ROSTER_LOG_RESOURCE
-        ),
+        url: resourceUrl({
+          spaceUrl: was.space(spaceId).url,
+          collectionId: KEY_MAP_COLLECTION.id,
+          resourceId: USER_KEY_ROSTER_LOG_RESOURCE
+        }),
         method: 'GET',
         capability: generationDelegation
       })

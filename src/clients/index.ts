@@ -39,11 +39,7 @@ export {
   currentAccountSigningKeys,
   listAccountClients
 } from './listing.js'
-export type {
-  AccountClientView,
-  AccountLogPointer,
-  VerifiedAccountLog
-} from './listing.js'
+export type { AccountClientView, VerifiedAccountLog } from './listing.js'
 
 export { deriveGrantSignerState } from './grantState.js'
 export type { GrantSignerState } from './grantState.js'

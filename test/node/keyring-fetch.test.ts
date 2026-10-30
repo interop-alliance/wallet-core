@@ -18,14 +18,14 @@ describe('fetchKeyringRecord', () => {
       // @ts-expect-error -- `kdf` is required; no default names a method
       return fetchKeyringRecord({
         secret: 'passphrase',
-        storageServerUrl: 'https://was.example'
+        baseServerUrl: 'https://was.example'
       })
     }
     function namesKdf(): Promise<unknown> {
       return fetchKeyringRecord({
         secret: 'passphrase',
         kdf: KEYRING_KDF,
-        storageServerUrl: 'https://was.example'
+        baseServerUrl: 'https://was.example'
       })
     }
     expect(typeof omitsKdf).toBe('function')

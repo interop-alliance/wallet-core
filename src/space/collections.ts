@@ -381,8 +381,8 @@ export const DID_DOCUMENT_RESOURCE = 'did.json'
  * The world-readable did:webvh history log, a raw JSON-Lines string served as
  * `text/jsonl`: one log entry per line, each a full DID-document snapshot in a
  * hash chain. Sibling of `did.json` in the same `id` collection;
- * `did:webvh:<scid>:<host>:space:<spaceId>:id` resolves to
- * `https://<host>/space/<spaceId>/id/did.jsonl`.
+ * `did:webvh:<scid>:<host>:<prefix...>:space:<spaceId>:id` resolves to
+ * `https://<host>/<prefix>/space/<spaceId>/id/did.jsonl`.
  */
 export const DID_LOG_RESOURCE = 'did.jsonl'
 /**

@@ -56,6 +56,7 @@ import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { webvhResourceLogController } from '../resourceLog/index.js'
 import {
+  didWebvhLogLocation,
   mintClientWebvhUpdateKeys,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
@@ -299,10 +300,8 @@ async function selfEnrollClientBody({
   // roster log's entry proofs are checked against.
   const verified = await verifyAccountLog({
     did: expectedDid,
-    spaceId: pointer.spaceId,
-    host: pointer.host,
     // The same chain-head pin the two entries above published under: the
-    // verifier fetches the log by host URL and holds no store, so the store's
+    // verifier fetches the log by URL and holds no store, so the store's
     // own pin is handed to it explicitly.
     pinStore: logStore.pin.store
   })
@@ -314,10 +313,11 @@ async function selfEnrollClientBody({
   // establishes is session-local here; the app's client-local pin is
   // established by its own first login read.
   const zcapClient = webvhZcapClient({ keyAgent, did: expectedDid })
+  const { baseServerUrl, spaceId } = didWebvhLogLocation({ did: expectedDid })
   const store = userKeyRosterDescriptorStore({
-    storageServerUrl: pointer.host,
+    baseServerUrl,
     zcapClient,
-    spaceId: pointer.spaceId,
+    spaceId,
     resolveController: async () =>
       webvhResourceLogController({ did: expectedDid, log: verified.log }),
     pinStore: memoryResourceLogPinStore(),

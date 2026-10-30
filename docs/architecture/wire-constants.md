@@ -90,8 +90,17 @@ stored artifacts:
   - Why permanent: the visit key invokes the generation delegation and delegates
     the visit's grants onward; the two-relation shape is also what keeps it out
     of the ladder-VM asymmetry every reader recognizes.
-- **The unlock binding context** -- `freewallet/unlock/binding/v2`. Why
-  permanent: every bound credential's account-binding MAC.
+- **The unlock binding context** -- `freewallet/unlock/binding/v3`, over the
+  JSON array `[context, controller, did or '', spaceUrl, ladderSeed or '']`.
+  Why permanent: every bound credential's account-binding MAC. (`v2` bound a
+  Space id and a host in place of the Space URL; no record under it survives.)
+- **The did:webvh controller template** --
+  `did:webvh:{SCID}:<host>:<prefix...>:space:<spaceId>:<collectionId>`, the
+  host segment with a port as `%3A`, one segment per path segment of the base
+  server URL (none for an origin-root base), as did-method-webvh's own address
+  normalization produces them; `id` for the account log, a `gen-` generation id
+  for an annex log. Why permanent: every account's identifier, and the location
+  check every reader runs by inverting it.
 - **`MultikeyCommitment` / `publicKeyCommitment`** -- VM type + property; the
   value is the bare sha2-256 multihash of the key's decoded multikey bytes,
   base64url no-pad. Why permanent: the document convention for a
@@ -249,6 +258,9 @@ stored artifacts:
   the target is the bare container URL until the subtree marker ships (see the
   known gap below). Why permanent: a storage server admits a member's read by
   this verb-and-target pair.
+- **The pws-link `t` discriminator** -- the string `'pws-link'` on the QR
+  hand-off payload (`PWS_LINK_TYPE`). Why permanent: every printed or scanned
+  code carries it, and the recognizer matches on it.
 
 Every unlock method's KDF carries a distinct salt so two methods can never
 derive the same unlock identity.

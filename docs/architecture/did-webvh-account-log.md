@@ -39,9 +39,19 @@ controller port with its did:webvh adapter, supplying the library's
 
 The account's stable id is a `did:webvh` whose hash-chained log is hosted as
 `did.jsonl` in the world-readable `id` collection --
-`did:webvh:<scid>:<host>:space:<spaceId>:id` resolves to the log's URL with no
-server-side DID support needed. A `did:web` projection (`did.json`) is kept
-alongside; the log is the single source of truth.
+`did:webvh:<scid>:<host>:<prefix...>:space:<spaceId>:id` resolves to the log's
+URL with no server-side DID support needed. The segments after the SCID are the
+server's host, the base server URL's path prefix (none for an origin-root base),
+`space`, the Space id and the collection, so the identifier is self-locating:
+`didWebvhLogLocation` (`webvh/logLocation.ts`) reads the log URL, the Space URL
+and the base server URL off it, and the template `didWebvhControllerTemplate`
+beside it is its forward direction, built by did-method-webvh's own address
+normalization so the two cannot drift. A wallet holds the DID and stores no host
+or base, and every reader and store that takes the account by its DID
+(`verifyAccountLog`, `accountControllerResolver`, the `clients` listings and the
+login-time roster policy) locates the log from the DID alone, with no Space URL
+beside it. A `did:web` projection (`did.json`) is kept alongside; the log is the
+single source of truth.
 
 - **Document structure.** Each enrolled client contributes its Ed25519 key under
   all four relations (`authentication`, `assertionMethod`,
@@ -213,39 +223,39 @@ alongside; the log is the single source of truth.
   backend lacking the affordance.
 - **The `did:web` projection's freshness.** The signer seam writes `did.jsonl`
   through its log store alone and PUTs `did.json` only through a
-  `projectionStore` the caller hands in, on every arm. A bridge-delegated
-  caller is authorized for nothing but `did.jsonl`, so it hands none in, and a
-  ladder-signed entry run that way does not republish `did.json`: the
-  projection can name a client or a credential the log has since removed. The
-  server resolves the controller out of `did.jsonl`, so WAS authorization is
+  `projectionStore` the caller hands in, on every arm. A bridge-delegated caller
+  is authorized for nothing but `did.jsonl`, so it hands none in, and a
+  ladder-signed entry run that way does not republish `did.json`: the projection
+  can name a client or a credential the log has since removed. The server
+  resolves the controller out of `did.jsonl`, so WAS authorization is
   unaffected. A did:web verifier reading the stale document is not, which makes
   the lag a revocation bypass. Two writers close it. The removal ceremonies
   (`forgetEnrolledClient`, `forgetLastEnrolledClient`, a ladder-signed
   `revokeWebvhClient` or `removeUnlockKey` handed a `projectionStore`) PUT the
   POST-removal projection through that store immediately BEFORE their removal
-  entry, since the acting authority may end at that entry (the seam's rule for
-  a ladder-signed entry with `removesInventory`). And `ensureDidWebProjection`
+  entry, since the acting authority may end at that entry (the seam's rule for a
+  ladder-signed entry with `removesInventory`). And `ensureDidWebProjection`
   re-derives the projection from a resolved log, compares it against what the
-  host serves, and republishes only on a difference. Any `id`-collection writer runs it. Its compare is
-  exported on its own as `didWebProjectionCurrent`, for a reader such as a
-  wallet's invariant audit that wants the compare without the write. An absent
-  or unparsable body reads as not current. On a credential-anchored account that
-  is a transient visit under its generation delegation, which covers
-  `id/did.json` through the account Space's canonical container URL with no
-  widened bridge and no server change. The idempotent already-forgotten path
-  writes no projection, since the store handed in is authorized for nothing, and
-  the next transient visit's ensure is the mender. `concludeWithPublishedLog`
-  stays the controller-invoking paths' unconditional republish. Since a
-  difference alone does not say which side is stale, the ensure calls the
-  caller's optional `refresh`, a fresh resolution of the same log, and writes
-  only when the refreshed derivation still differs. Its PUT carries the served
-  read's ETag as `ifMatch`, or `ifNoneMatch` when the projection was absent, so
-  a projection written in between stands and the outcome is `conflict` rather
-  than a throw. Two windows remain. Between a ladder-signed entry and the next
-  visit that runs the ensure, the served projection is stale. And a removal run
-  torn between its projection PUT and its entry leaves `did.json` omitting a
-  client the log still lists, fail-closed for a did:web verifier and re-PUT by
-  the re-run.
+  host serves, and republishes only on a difference. Any `id`-collection writer
+  runs it. Its compare is exported on its own as `didWebProjectionCurrent`, for
+  a reader such as a wallet's invariant audit that wants the compare without the
+  write. An absent or unparsable body reads as not current. On a
+  credential-anchored account that is a transient visit under its generation
+  delegation, which covers `id/did.json` through the account Space's canonical
+  container URL with no widened bridge and no server change. The idempotent
+  already-forgotten path writes no projection, since the store handed in is
+  authorized for nothing, and the next transient visit's ensure is the mender.
+  `concludeWithPublishedLog` stays the controller-invoking paths' unconditional
+  republish. Since a difference alone does not say which side is stale, the
+  ensure calls the caller's optional `refresh`, a fresh resolution of the same
+  log, and writes only when the refreshed derivation still differs. Its PUT
+  carries the served read's ETag as `ifMatch`, or `ifNoneMatch` when the
+  projection was absent, so a projection written in between stands and the
+  outcome is `conflict` rather than a throw. Two windows remain. Between a
+  ladder-signed entry and the next visit that runs the ensure, the served
+  projection is stale. And a removal run torn between its projection PUT and its
+  entry leaves `did.json` omitting a client the log still lists, fail-closed for
+  a did:web verifier and re-PUT by the re-run.
 - `verifyLog.ts` fetches the world-readable log unauthenticated on purpose (the
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this
@@ -302,24 +312,26 @@ alongside; the log is the single source of truth.
   design: the Space id stays stable across a claimed host move, so a log served
   from a new host lands in the SAME slot and is checked against the held pin,
   rather than opening a fresh trust-on-first-use slate. `verifyAccountLog`
-  derives its `logId` from the `spaceId` it is given.
+  derives its `logId` from the Space id the DID encodes.
 
   The world-readable fetch runs in two directions over one body.
-  `verifyAccountLog` takes the DID the caller's account pointer names and
-  refuses a log resolving to any other. `discoverAccountLog` takes no DID: a
-  requester holding per-collection grants and nothing that names the Space owner
-  (the grant chain's root is an opaque URN, and the Space Description needs a
-  Space-scoped capability App Connect never delegates) reads the log at the
-  Space's `id` collection and takes the owner from it. What both run is the
-  location check. A did:webvh identifier encodes where its log is published, so
-  the resolved DID's `getFileUrl` must map back to the URL the log was fetched
-  from: the same host, and the same path once the server's base path is set
-  aside (a did:webvh encodes no base path, while the fetch keeps it, so a server
-  deployed under one still passes). A log published for another location and
-  served here is refused, a tampered log fails resolution, and an absent one
-  raises `AccountLogMissingError`. The two readers share the fetch, parse,
-  resolve, and location check, so they cannot drift; the expected-DID check and
-  the optional pin check-and-advance sit on top.
+  `verifyAccountLog` takes the DID alone, as the caller's account pointer names
+  it, and refuses a log resolving to any other. `discoverAccountLog` takes no
+  DID: a requester holding per-collection grants and nothing that names the
+  Space owner (the grant chain's root is an opaque URN, and the Space
+  Description needs a Space-scoped capability App Connect never delegates) reads
+  the log at the Space's `id` collection and takes the owner from it. What both
+  run is the location check. A did:webvh identifier encodes where its log is
+  published, so the log URL the resolved DID encodes (`didWebvhLogLocation`)
+  must equal the URL the log was fetched from, path prefix included.
+  `verifyAccountLog` fetches at the URL the DID encodes; `discoverAccountLog`
+  takes the Space URL and fetches beneath it. Neither takes a cached locator
+  beside its one input, since a Space URL that disagreed with the DID could only
+  fail the check. A log published for another location and served here is
+  refused, a tampered log fails resolution, and an absent one raises
+  `AccountLogMissingError`. The two readers share the fetch, parse, resolve, and
+  location check, so they cannot drift; the expected-DID check and the optional
+  pin check-and-advance sit on top.
 
   `readPublishedLog` carries the other half of the check beside the pin: an
   optional `expectedDid` the ceremony's own read of `did.jsonl` must resolve to,
@@ -370,45 +382,44 @@ seed and checked against the published `updateKeys`, the carry-over
 precondition, and the entry's own stated parameters. The ladder arm signs
 through the record's bridge delegation: the rung attributed from the log
 (fail-closed), the acting rung unioned back into `updateKeys`, and its
-carry-over hash before the build's own `commitHashes` in `decisions/0007`
-order. Every arm publishes `did.jsonl` through the `AccountLogStore` and asks
-it for nothing else. The `did:web` projection is written only through the
-optional `projectionStore`, from `updateDID`'s own `webDoc`, so which store may
-write `did.json` is stated on the call rather than inferred from the arm: an
-enrolled client hands its controller-invoking store (`enrollWebvhClient` and
+carry-over hash before the build's own `commitHashes` in `decisions/0007` order.
+Every arm publishes `did.jsonl` through the `AccountLogStore` and asks it for
+nothing else. The `did:web` projection is written only through the optional
+`projectionStore`, from `updateDID`'s own `webDoc`, so which store may write
+`did.json` is stated on the call rather than inferred from the arm: an enrolled
+client hands its controller-invoking store (`enrollWebvhClient` and
 `revokeWebvhClient` do so for it), a transient visit hands its
 generation-delegated store, and a caller holding the bridge delegation alone
 hands nothing and leaves the projection to the next visit's ensure. The
 projection has two timings and one failure rule each. After the entry, the
-default, it is a derived cache of the entry that landed, and a failed PUT
-throws past the pivot, so the ceremony's re-run republishes it from the
-resolved log on its idempotent path (the `concludeUnchanged` the seam hands
-`build`, bound to the same store and timing). Before the entry, for a removal
-whose entry may end the authority that writes it, a failed PUT is warned and
-the entry publishes anyway, since a projection the next ensure mends is a
-smaller residue than a struck key the log still lists; the idempotent path
-writes nothing under this timing, since the store's authority may already have
-ended. The seam decides the timing itself, from its signer arm and the
-caller's `removesInventory`: a ladder-signed removal writes before the entry,
-every other entry after. Both arms take the caller's chain-head pin and advance it,
-publish conditionally on the read the entry was built on, and leave the
-conflict retry to the caller. That read is also the entry's one verification.
-`PublishedWebvhLog` carries the resolver's `meta` for exactly the log bytes it
-holds, and the seam hands it to `updateDID` as `priorMeta`, so the library does
-not resolve the log a second time. A head built from an entry's own `updateDID`
-result (`accountEntryHead`) carries that result's meta, so a second entry built
-on it resolves nothing. `rotateWebvhUpdateKey` and the client annex log's
-entries pass their pinned read's meta the same way. Two rules follow from the
-arm's self-reveal. An entry cannot remove its own signer, so a ceremony that
-retires a rung needs a second entry signed by the successor. And a rung is
-reused rather than consumed: attribution prefers a revealed rung over a
-committed one, so rung 0 stands revealed in the world-readable `updateKeys` for
-the credential's life and no single-entry ceremony gets prerotation over it.
-That is an accepted cost: an attacker holding a rung's private half already
-holds the seed that yields every rung. `ladderSignedAccountEntry`
-(`clientAnnex/ladderAnchored.ts`) is the seam's ladder arm under the annex's own
-name. `rotateWebvhUpdateKey` keeps `updateKeys` directly, since that key is its
-subject.
+default, it is a derived cache of the entry that landed, and a failed PUT throws
+past the pivot, so the ceremony's re-run republishes it from the resolved log on
+its idempotent path (the `concludeUnchanged` the seam hands `build`, bound to
+the same store and timing). Before the entry, for a removal whose entry may end
+the authority that writes it, a failed PUT is warned and the entry publishes
+anyway, since a projection the next ensure mends is a smaller residue than a
+struck key the log still lists; the idempotent path writes nothing under this
+timing, since the store's authority may already have ended. The seam decides the
+timing itself, from its signer arm and the caller's `removesInventory`: a
+ladder-signed removal writes before the entry, every other entry after. Both
+arms take the caller's chain-head pin and advance it, publish conditionally on
+the read the entry was built on, and leave the conflict retry to the caller.
+That read is also the entry's one verification. `PublishedWebvhLog` carries the
+resolver's `meta` for exactly the log bytes it holds, and the seam hands it to
+`updateDID` as `priorMeta`, so the library does not resolve the log a second
+time. A head built from an entry's own `updateDID` result (`accountEntryHead`)
+carries that result's meta, so a second entry built on it resolves nothing.
+`rotateWebvhUpdateKey` and the client annex log's entries pass their pinned
+read's meta the same way. Two rules follow from the arm's self-reveal. An entry
+cannot remove its own signer, so a ceremony that retires a rung needs a second
+entry signed by the successor. And a rung is reused rather than consumed:
+attribution prefers a revealed rung over a committed one, so rung 0 stands
+revealed in the world-readable `updateKeys` for the credential's life and no
+single-entry ceremony gets prerotation over it. That is an accepted cost: an
+attacker holding a rung's private half already holds the seed that yields every
+rung. `ladderSignedAccountEntry` (`clientAnnex/ladderAnchored.ts`) is the seam's
+ladder arm under the annex's own name. `rotateWebvhUpdateKey` keeps `updateKeys`
+directly, since that key is its subject.
 
 The seam also carries the resume marker (`webvh/builtOnHead.ts`). A resumed
 ceremony passes `builtOnHead`, the `{ scid, versionId }` head an earlier

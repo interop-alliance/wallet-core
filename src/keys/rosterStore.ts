@@ -20,7 +20,6 @@ import {
 } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourceLogStore } from '@interop/was-client/log'
-import { spacesUrl } from '@interop/was-client/paths'
 import {
   resourceLogPinId,
   type ResourceLogPinStore,
@@ -60,7 +59,7 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  * `key-map/user-key.jsonl`, writes append to it.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}   the session's root signing client
  * @param options.spaceId {string}   the data Space id
  * @param options.resolveController {function}
@@ -82,7 +81,7 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  * @returns {SealableEncryptionDescriptorStore}
  */
 export function userKeyRosterDescriptorStore({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   spaceId,
   resolveController,
@@ -91,7 +90,7 @@ export function userKeyRosterDescriptorStore({
   capability,
   serviceDescription
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
   resolveController: () => Promise<WebvhResourceLogController>
@@ -101,7 +100,7 @@ export function userKeyRosterDescriptorStore({
   serviceDescription?: ServiceDescription
 }): SealableEncryptionDescriptorStore {
   const was = new WasClient({
-    serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
+    baseServerUrl,
     zcapClient,
     serviceDescription
   })

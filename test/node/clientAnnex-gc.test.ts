@@ -28,7 +28,7 @@ import { WasClient } from '@interop/was-client'
 import { ProblemTypes } from '@interop/storage-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { spacePath, toUrl, spacesUrl } from '@interop/was-client/paths'
+import { spaceUrlById } from '@interop/was-client/paths'
 import {
   ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
@@ -373,7 +373,7 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
     revoked,
     rejectedValidation,
     was: new WasClient({
-      serverUrl: spacesUrl({ baseUrl: WAS_URL }),
+      baseServerUrl: WAS_URL,
       zcapClient
     }),
     /**
@@ -452,7 +452,7 @@ async function publishGeneration({
 }) {
   const minted = await mintCredentialClientAnnexGeneration({
     was: server.was,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: accountDid,
     ladderSeed: LADDER_SEED,
@@ -470,7 +470,7 @@ async function publishGeneration({
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
         clientAnnexDid
       }),
@@ -562,7 +562,7 @@ async function gcWorld({ signerBound = true }: { signerBound?: boolean } = {}) {
   const updateKeys = { updateSeed: fixedSeed(1), stagedSeed: fixedSeed(2) }
   const { did: accountDid } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: ACCOUNT_SPACE_ID,
     clientKeys: CANONICAL_CLIENT_KEYS[0]!,
     updateKeys
@@ -708,7 +708,7 @@ async function runPass({
   const onCollectedIds: string[] = []
   const report = await runClientAnnexGc({
     was: world.server.was,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
     account,
     // The annex logs pin in the account-log store's pin store, so a case
@@ -758,7 +758,7 @@ async function siblingSwap({
 }) {
   return swapClientAnnexGeneration({
     was: world.server.was,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
     account: account ?? (await world.accountView()),
     idStore: world.idStore,
@@ -912,7 +912,7 @@ describe('delegatedClientsPointerEstablishedAt', () => {
     const updateKeys = { updateSeed: fixedSeed(1), stagedSeed: fixedSeed(2) }
     await ensureDidWebvh({
       idStore: account.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       clientKeys: CANONICAL_CLIENT_KEYS[0]!,
       updateKeys
@@ -1088,7 +1088,7 @@ describe('the quarterly swap', () => {
         freshDid
       )
       expect(freshDelegation!.invocationTarget).toBe(
-        toUrl({ baseUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
+        spaceUrlById({ baseServerUrl: WAS_URL, spaceId: ACCOUNT_SPACE_ID })
       )
 
       // The old delegation was submitted for revocation VERBATIM.
@@ -1643,7 +1643,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     await expect(
       swapClientAnnexGeneration({
         was: world.server.was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         accountSpaceId: ACCOUNT_SPACE_ID,
         account: {
           did: pointed.did,

@@ -66,7 +66,7 @@ import type {
   SpaceMetadata,
   WasClient
 } from '@interop/was-client'
-import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
+import { rootCapabilityId, spaceUrlById } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
 import { isJsonObject } from '../jsonObject.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
@@ -79,6 +79,8 @@ import {
   assertPublishedLogDid,
   currentLogParameters,
   didWebvhControllerTemplate,
+  didWebvhLogLocation,
+  didWebvhLogPaths,
   MULTIKEY_VM_TYPE,
   putLogResource,
   readPublishedLog,
@@ -244,7 +246,7 @@ const MULTIKEY_CONTEXT_URL = 'https://w3id.org/security/multikey/v1'
  * publishing a generation no one can ever extend.
  *
  * @param options {object}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}   the generation collection's name
  * @param options.updateKeyPublicKeyMultibase {string}   the minting
@@ -256,14 +258,14 @@ const MULTIKEY_CONTEXT_URL = 'https://w3id.org/security/multikey/v1'
  *   the resolver's meta for it
  */
 export async function createClientAnnexLog({
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   generationId,
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
   signer
 }: {
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   generationId: string
   updateKeyPublicKeyMultibase: string
@@ -284,15 +286,14 @@ export async function createClientAnnexLog({
         'later entry could ever re-state the revealed key.'
     )
   }
-  const { host } = new URL(wasServerUrl)
   const controllerTemplate = didWebvhControllerTemplate({
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     collectionId: generationId
   })
   const result = await createDID({
-    address: host,
-    paths: ['space', spaceId, generationId],
+    address: baseServerUrl,
+    paths: didWebvhLogPaths({ spaceId, collectionId: generationId }),
     signer,
     updateKeys: [updateKeyPublicKeyMultibase],
     nextKeyHashes,
@@ -422,7 +423,7 @@ function typedAnnexSpace({
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an enrolled
  *   client (or the bootstrap controller on a ladder-anchored signup)
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.controller {string}   the auxiliary Space's controller, used
  *   only when the Space does not exist yet
@@ -444,7 +445,7 @@ function typedAnnexSpace({
  */
 export async function mintClientAnnexGeneration({
   was,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   controller,
   updateKeyPublicKeyMultibase,
@@ -453,7 +454,7 @@ export async function mintClientAnnexGeneration({
   pinStore
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   controller: string
   updateKeyPublicKeyMultibase: string
@@ -474,7 +475,7 @@ export async function mintClientAnnexGeneration({
   const generationId = mintGenerationId()
   const published = await publishClientAnnexGenesis({
     was,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     generationId,
     updateKeyPublicKeyMultibase,
@@ -492,7 +493,7 @@ export async function mintClientAnnexGeneration({
  *
  * @param options {object}
  * @param options.was {WasClient}
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}   the freshly minted generation id
  * @param options.updateKeyPublicKeyMultibase {string}
@@ -514,7 +515,7 @@ export async function mintClientAnnexGeneration({
  */
 async function publishClientAnnexGenesis({
   was,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   generationId,
   updateKeyPublicKeyMultibase,
@@ -524,7 +525,7 @@ async function publishClientAnnexGenesis({
   capability
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   generationId: string
   updateKeyPublicKeyMultibase: string
@@ -546,7 +547,7 @@ async function publishClientAnnexGenesis({
     capability
   }).configure({ current: null, name: generationId, force: true })
   const created = await createClientAnnexLog({
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     generationId,
     updateKeyPublicKeyMultibase,
@@ -585,7 +586,7 @@ async function publishClientAnnexGenesis({
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an enrolled
  *   client (or the bootstrap controller on a ladder-anchored signup)
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.controller {string}   the auxiliary Space's controller, used
  *   only when the Space does not exist yet
@@ -621,7 +622,7 @@ async function publishClientAnnexGenesis({
  */
 export async function mintCredentialClientAnnexGeneration({
   was,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   controller,
   ladderSeed,
@@ -630,7 +631,7 @@ export async function mintCredentialClientAnnexGeneration({
   capability
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   controller: string
   ladderSeed: Uint8Array
@@ -652,7 +653,7 @@ export async function mintCredentialClientAnnexGeneration({
   const ownHash = await deriveNextKeyHash(rung.keyMultibase)
   const published = await publishClientAnnexGenesis({
     was,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     generationId,
     updateKeyPublicKeyMultibase: rung.keyMultibase,
@@ -854,9 +855,9 @@ export function delegatedClientsPointer({
  *
  * The account deletion ceremony is the reader: it must name each auxiliary
  * Space it is about to destroy, and the log is the only durable record of
- * the superseded ones. Each entry carries the annex DID and its host beside
- * the Space id, because an account that has migrated hosts leaves entries
- * this deployment cannot address: deleting `spaceId` on the CURRENT host
+ * the superseded ones. Each entry carries the annex DID and its base server URL beside
+ * the Space id, because an account that has migrated servers leaves entries
+ * this deployment cannot address: deleting `spaceId` on the CURRENT server
  * would address a Space that is not the one the entry names, and a 404 there
  * would otherwise read as a clean deletion. Such an entry is the caller's to
  * report as a residue.
@@ -867,21 +868,25 @@ export function delegatedClientsPointer({
  *
  * An entry carrying no document state, and an endpoint that does not parse
  * as a client-annex DID, are skipped rather than refused: the walk is an
- * enumeration aid, and a caller cannot act on an id it could not read.
+ * enumeration aid, and a caller cannot act on an id it could not read. An
+ * annex DID whose location cannot be read back off it is refused instead,
+ * with the location reader's own error, since a deletion that skipped it
+ * would leave that Space standing unreported.
  *
  * @param options {object}
  * @param options.log {DIDLog}   the VERIFIED account log
- * @returns {Array<{ did: string, host: string, spaceId: string }>}   the
- *   Spaces, in log order
+ * @returns {Array<{ did: string, baseServerUrl: string, spaceId: string }>}
+ *   the Spaces, in log order, each with the base server URL its DID locates
  */
 export function delegatedClientsSpaceHistory({ log }: { log: DIDLog }): Array<{
   did: string
-  host: string
+  baseServerUrl: string
   spaceId: string
 }> {
-  const spaces: Array<{ did: string; host: string; spaceId: string }> = []
+  const spaces: Array<{ did: string; baseServerUrl: string; spaceId: string }> =
+    []
   for (const pointed of delegatedClientsPointerHistory({ log })) {
-    let parts: { host: string; spaceId: string }
+    let parts: { spaceId: string }
     try {
       parts = clientAnnexDidParts({ did: pointed })
     } catch {
@@ -890,7 +895,8 @@ export function delegatedClientsSpaceHistory({ log }: { log: DIDLog }): Array<{
     if (spaces.some(space => space.spaceId === parts.spaceId)) {
       continue
     }
-    spaces.push({ did: pointed, host: parts.host, spaceId: parts.spaceId })
+    const { baseServerUrl } = didWebvhLogLocation({ did: pointed })
+    spaces.push({ did: pointed, baseServerUrl, spaceId: parts.spaceId })
   }
   return spaces
 }
@@ -1013,8 +1019,7 @@ export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer (an
  *   enrolled client's promoted signer, or the account ladder VM)
- * @param options.wasServerUrl {string}   the auxiliary Space's storage
- *   server (the account pointer's host)
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.clientAnnexSpaceId {string}   the auxiliary annex
  *   Space's id
  * @param options.controller {string}   the credential-derived signing DID
@@ -1023,20 +1028,20 @@ export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  */
 export async function mintDelegatedClientsDelegation({
   zcapClient,
-  wasServerUrl,
+  baseServerUrl,
   clientAnnexSpaceId,
   controller,
   now = Date.now()
 }: {
   zcapClient: ZcapClient
-  wasServerUrl: string
+  baseServerUrl: string
   clientAnnexSpaceId: string
   controller: string
   now?: number
 }): Promise<IZcap> {
-  const spaceUrl = toUrl({
-    baseUrl: wasServerUrl,
-    path: spacePath(clientAnnexSpaceId)
+  const spaceUrl = spaceUrlById({
+    baseServerUrl,
+    spaceId: clientAnnexSpaceId
   })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
@@ -1060,18 +1065,17 @@ export async function mintDelegatedClientsDelegation({
  * @param options.doc {object}   the locally verified account document
  * @param options.zcapClient {ZcapClient}   the acting client's promoted
  *   signer, which mints the fresh delegations
- * @param options.wasServerUrl {string}   the auxiliary Space's storage
- *   server (the account pointer's host)
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @returns {Function}   `({ controller }) => Promise<IZcap | undefined>`
  */
 export function delegatedClientsDelegationMinter({
   doc,
   zcapClient,
-  wasServerUrl
+  baseServerUrl
 }: {
   doc: object
   zcapClient: ZcapClient
-  wasServerUrl: string
+  baseServerUrl: string
 }): (options: { controller: string }) => Promise<IZcap | undefined> {
   return async ({ controller }: { controller: string }) => {
     const clientAnnexDid = delegatedClientsPointer({
@@ -1088,7 +1092,7 @@ export function delegatedClientsDelegationMinter({
     }
     return mintDelegatedClientsDelegation({
       zcapClient,
-      wasServerUrl,
+      baseServerUrl,
       clientAnnexSpaceId,
       controller
     })
@@ -1242,7 +1246,7 @@ export const GENERATION_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer (ladder VM
  *   or an enrolled client's promoted signer)
- * @param options.wasServerUrl {string}   the ACCOUNT Space's storage server
+ * @param options.baseServerUrl {string}   the ACCOUNT Space's storage server
  * @param options.spaceId {string}   the ACCOUNT Space's id
  * @param options.clientAnnexDid {string}   the generation's annex DID
  * @param [options.now] {number}   epoch milliseconds, for tests
@@ -1250,19 +1254,19 @@ export const GENERATION_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  */
 export async function mintGenerationDelegation({
   zcapClient,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   clientAnnexDid,
   now = Date.now()
 }: {
   zcapClient: ZcapClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   clientAnnexDid: string
   now?: number
 }): Promise<IZcap> {
   clientAnnexDidParts({ did: clientAnnexDid })
-  const spaceUrl = toUrl({ baseUrl: wasServerUrl, path: spacePath(spaceId) })
+  const spaceUrl = spaceUrlById({ baseServerUrl, spaceId })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
     // Subtree marker: pending the profile change; flip this target to `${spaceUrl}*` when it ships.
@@ -2360,7 +2364,7 @@ export async function enrollTransientClient({
  * @param options {object}
  * @param options.was {WasClient}   the storage client the mint and the
  *   install write through
- * @param options.wasServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.controller {string}   the Space's creation controller (see
  *   {@link mintCredentialClientAnnexGeneration})
@@ -2388,7 +2392,7 @@ export async function enrollTransientClient({
  */
 export async function mintPointedClientAnnexGeneration<T>({
   was,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   controller,
   ladderSeed,
@@ -2401,7 +2405,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   now
 }: {
   was: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   controller: string
   ladderSeed: Uint8Array
@@ -2423,7 +2427,7 @@ export async function mintPointedClientAnnexGeneration<T>({
 }> {
   const minted = await mintCredentialClientAnnexGeneration({
     was,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     controller,
     ladderSeed,

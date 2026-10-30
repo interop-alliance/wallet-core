@@ -4,8 +4,9 @@
 /**
  * The client annex DID string's shape, on its own import-free leaf so a base
  * module can recognize and parse an annex DID without the annex module: the
- * generation id convention, the parse of an annex did:webvh into its host,
- * auxiliary Space id, and generation id, and the predicate over that parse.
+ * generation id convention, the parse of an annex did:webvh into its Space
+ * location, auxiliary Space id, and generation id, and the predicate over
+ * that parse.
  * The annex module (`clientAnnex/log.ts`, `clientAnnex/grantRevocation.ts`)
  * re-exports these, so its public surface is unchanged.
  */
@@ -45,7 +46,13 @@ export function assertGenerationId(generationId: string): void {
  * {@link parseClientAnnexDid} reads them.
  */
 export interface ClientAnnexDidParts {
-  host: string
+  /**
+   * The identifier segments naming the annex Space: the host, any base
+   * server URL path prefix, the `space` segment and the Space id, joined by
+   * colons as the DID carries them. Two annex DIDs with equal
+   * `spaceLocation` name the same Space on the same server.
+   */
+  spaceLocation: string
   spaceId: string
   generationId: string
 }
@@ -77,23 +84,27 @@ function splitClientAnnexDid(did: string): ClientAnnexDidParts | undefined {
   ) {
     return undefined
   }
-  return { host: decodeURIComponent(host), spaceId, generationId }
+  return {
+    spaceLocation: parts.slice(3, parts.length - 1).join(':'),
+    spaceId,
+    generationId
+  }
 }
 
 /**
- * Parses the host, the auxiliary Space id and the generation id out of an
- * annex DID string, or returns `undefined` when the string is not an annex
- * did:webvh. All three are permanent substrings of every annex DID by
- * construction: the generation id is the final path segment of the annex
- * DID (`did:webvh:<scid>:<host>:...:space:<spaceId>:<generationId>`), so
- * this parse is what lets an enrollee find the generation's log from the
+ * Parses the Space location, the auxiliary Space id and the generation id
+ * out of an annex DID string, or returns `undefined` when the string is not
+ * an annex did:webvh. All three are permanent substrings of every annex DID
+ * by construction: the generation id is the final path segment of the annex
+ * DID (`did:webvh:<scid>:<host>:<prefix...>:space:<spaceId>:<generationId>`),
+ * so this parse is what lets an enrollee find the generation's log from the
  * pointer alone -- no registry.
  *
- * The host is the method-specific id's second segment, percent-decoded (a
- * port rides as `%3A` inside the one segment). A caller enumerating Spaces
- * out of a log compares it against the deployment it is talking to: an
- * account that has migrated hosts carries entries naming the old one, which
- * this deployment cannot address.
+ * The Space location is everything between the SCID and the generation id,
+ * verbatim: the host segment (a port rides as `%3A` inside it), the base
+ * server URL's path prefix segments, `space`, and the Space id. A caller
+ * that needs the server as a URL resolves the DID through the webvh
+ * module's log-location inverse; the leaf stays string-only.
  *
  * @param did {string}
  * @returns {ClientAnnexDidParts | undefined}

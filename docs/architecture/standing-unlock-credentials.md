@@ -68,8 +68,10 @@ The pieces, and where each secret lives:
   PUT-on-`did.jsonl` delegation) is the one member a re-bind replaces
   (`remintUnlockRecordDelegations`), and only the record's OWN credential
   re-binds it (`decisions/0019`). The `binding` frame member is an HMAC under
-  the credential-derived MAC key over controller, pointer, AND ladder seed,
-  verified before the pointer is trusted, so a storage host can neither redirect
+  the credential-derived MAC key over controller, pointer (`did` and
+  `spaceUrl`), AND ladder seed, under the `freewallet/unlock/binding/v3`
+  context, verified before the pointer is trusted, so a storage host can neither
+  redirect
   login at another account nor substitute a ladder of its own. The mixed-signer
   policy is the recovery record's: bind-time records verify before decryption,
   re-minted ones come back pending for the caller to settle against the verified

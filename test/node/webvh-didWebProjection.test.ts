@@ -43,7 +43,7 @@ async function projectionFixture() {
   const { idStore, didDocument, log } = memoryIdStore()
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
     updateKeys: mintClientWebvhUpdateKeys()

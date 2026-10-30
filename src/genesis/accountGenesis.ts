@@ -316,8 +316,8 @@ export interface AccountGenesisResult {
  * @param [options.wasAsClient] {WasClient}   signing under this client's
  *   plain did:key, for the torn-promotion heal (see
  *   {@link ensurePromotedSpaceController})
- * @param options.wasServerUrl {string}   the storage server the account
- *   lives on; the did:webvh id embeds its host
+ * @param options.baseServerUrl {string}   the server's base server URL,
+ *   which the did:webvh id embeds (host and path prefix)
  * @param options.spaceId {string}
  * @param options.keyAgent {ICapabilityAgent}   this founding client's signing
  *   key agent (`agentsFromSeed` over the key set's `clientSeed`); its did:key
@@ -406,7 +406,7 @@ export async function ensureAccountGenesis(
 async function runAccountGenesis({
   was,
   wasAsClient,
-  wasServerUrl,
+  baseServerUrl,
   spaceId,
   keyAgent,
   clientKeyAgreementKey,
@@ -424,7 +424,7 @@ async function runAccountGenesis({
 }: {
   was: WasClient
   wasAsClient?: WasClient
-  wasServerUrl: string
+  baseServerUrl: string
   spaceId: string
   keyAgent: ICapabilityAgent
   clientKeyAgreementKey: ProfileKeyAgreementKey
@@ -492,7 +492,7 @@ async function runAccountGenesis({
   const { publicKeyMultibase: keyAgreementKeyMultibase } = clientKeyAgreementKey
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl,
+    baseServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
     ...(kmsAuthentication.binding?.etag !== undefined && {

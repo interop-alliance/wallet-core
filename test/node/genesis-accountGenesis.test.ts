@@ -48,6 +48,7 @@ import { setLogger } from '../../src/log.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-genesis'
+const SPACE_URL = `${WAS_URL}/space/${SPACE_ID}/`
 const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
 
 /**
@@ -100,113 +101,115 @@ function fakeWas({
     setPublics: [] as string[],
     replaces: [] as string[]
   }
+  const spaceHandle = () => ({
+    url: SPACE_URL,
+    describe: async () =>
+      spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
+    describeWithEtag: async () =>
+      spaceDescription
+        ? {
+            description: { id: SPACE_ID, ...spaceDescription },
+            etag: '"1"'
+          }
+        : null,
+    configure: async (options: { name?: string; controller?: string }) => {
+      calls.spaceConfigures.push({ ...options })
+      spaceDescription = { ...options }
+      return { id: SPACE_ID, type: ['Space'], ...options }
+    },
+    // The guarded create `ensureSpace` runs on an absent Space.
+    replaceDescription: async (options: {
+      name?: string
+      controller?: string
+    }) => {
+      calls.spaceConfigures.push({ ...options })
+      spaceDescription = { ...options }
+      return {
+        description: { id: SPACE_ID, type: ['Space'], ...options },
+        etag: '"1"'
+      }
+    },
+    collection: (collectionId: string) => ({
+      describe: async () => {
+        const entry = collections.get(collectionId)
+        return entry ? structuredClone(entry.description) : null
+      },
+      configure: async (options: {
+        name?: string
+        encryption?: CollectionEncryption
+      }) => {
+        calls.collectionConfigures.push(collectionId)
+        const entry = collections.get(collectionId)
+        const description: StoredDescription = {
+          name: options.name,
+          ...(options.encryption ? { encryption: options.encryption } : {})
+        }
+        if (entry) {
+          entry.description = description
+          entry.version++
+        } else {
+          collections.set(collectionId, {
+            description,
+            version: 0,
+            isPublic: false
+          })
+        }
+      },
+      isPublic: async () => collections.get(collectionId)?.isPublic ?? false,
+      setPublic: async () => {
+        calls.setPublics.push(collectionId)
+        const entry = collections.get(collectionId)
+        if (entry) {
+          entry.isPublic = true
+        }
+      },
+      describeWithEtag: async () => {
+        const entry = collections.get(collectionId)
+        if (entry && failDescribeWithEtag?.(collectionId)) {
+          throw new Error(`Service unavailable for "${collectionId}".`)
+        }
+        return entry
+          ? {
+              description: structuredClone(entry.description),
+              etag: `v${entry.version}`
+            }
+          : null
+      },
+      replaceDescription: async (
+        description: StoredDescription,
+        { ifMatch, ifNoneMatch }: { ifMatch?: string; ifNoneMatch?: boolean }
+      ) => {
+        const entry = collections.get(collectionId)
+        if (ifNoneMatch) {
+          // The guarded create: refused over an existing collection.
+          if (entry) {
+            throw new PreconditionFailedError('collection exists')
+          }
+          calls.collectionConfigures.push(collectionId)
+          collections.set(collectionId, {
+            description: structuredClone(description),
+            version: 0,
+            isPublic: false
+          })
+          return { description: structuredClone(description), etag: 'v0' }
+        }
+        if (!entry || ifMatch !== `v${entry.version}`) {
+          throw new PreconditionFailedError('stale description etag')
+        }
+        entry.description = structuredClone(description)
+        entry.version++
+        calls.replaces.push(collectionId)
+      }
+    })
+  })
   const was = {
     space: (spaceId: string) => {
       expect(spaceId).toBe(SPACE_ID)
-      return {
-        describe: async () =>
-          spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
-        describeWithEtag: async () =>
-          spaceDescription
-            ? {
-                description: { id: SPACE_ID, ...spaceDescription },
-                etag: '"1"'
-              }
-            : null,
-        configure: async (options: { name?: string; controller?: string }) => {
-          calls.spaceConfigures.push({ ...options })
-          spaceDescription = { ...options }
-          return { id: SPACE_ID, type: ['Space'], ...options }
-        },
-        // The guarded create `ensureSpace` runs on an absent Space.
-        replaceDescription: async (options: {
-          name?: string
-          controller?: string
-        }) => {
-          calls.spaceConfigures.push({ ...options })
-          spaceDescription = { ...options }
-          return {
-            description: { id: SPACE_ID, type: ['Space'], ...options },
-            etag: '"1"'
-          }
-        },
-        collection: (collectionId: string) => ({
-          describe: async () => {
-            const entry = collections.get(collectionId)
-            return entry ? structuredClone(entry.description) : null
-          },
-          configure: async (options: {
-            name?: string
-            encryption?: CollectionEncryption
-          }) => {
-            calls.collectionConfigures.push(collectionId)
-            const entry = collections.get(collectionId)
-            const description: StoredDescription = {
-              name: options.name,
-              ...(options.encryption ? { encryption: options.encryption } : {})
-            }
-            if (entry) {
-              entry.description = description
-              entry.version++
-            } else {
-              collections.set(collectionId, {
-                description,
-                version: 0,
-                isPublic: false
-              })
-            }
-          },
-          isPublic: async () =>
-            collections.get(collectionId)?.isPublic ?? false,
-          setPublic: async () => {
-            calls.setPublics.push(collectionId)
-            const entry = collections.get(collectionId)
-            if (entry) {
-              entry.isPublic = true
-            }
-          },
-          describeWithEtag: async () => {
-            const entry = collections.get(collectionId)
-            if (entry && failDescribeWithEtag?.(collectionId)) {
-              throw new Error(`Service unavailable for "${collectionId}".`)
-            }
-            return entry
-              ? {
-                  description: structuredClone(entry.description),
-                  etag: `v${entry.version}`
-                }
-              : null
-          },
-          replaceDescription: async (
-            description: StoredDescription,
-            {
-              ifMatch,
-              ifNoneMatch
-            }: { ifMatch?: string; ifNoneMatch?: boolean }
-          ) => {
-            const entry = collections.get(collectionId)
-            if (ifNoneMatch) {
-              // The guarded create: refused over an existing collection.
-              if (entry) {
-                throw new PreconditionFailedError('collection exists')
-              }
-              calls.collectionConfigures.push(collectionId)
-              collections.set(collectionId, {
-                description: structuredClone(description),
-                version: 0,
-                isPublic: false
-              })
-              return { description: structuredClone(description), etag: 'v0' }
-            }
-            if (!entry || ifMatch !== `v${entry.version}`) {
-              throw new PreconditionFailedError('stale description etag')
-            }
-            entry.description = structuredClone(description)
-            entry.version++
-            calls.replaces.push(collectionId)
-          }
-        })
-      }
+      return spaceHandle()
+    },
+    spaceAt: (spaceUrl: string) => {
+      expect(spaceUrl).toBe(SPACE_URL)
+      return spaceHandle()
     }
   } as unknown as WasClient
   return {
@@ -476,7 +479,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
 
     const result = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -552,7 +555,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const run = () =>
       ensureAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
         clientKeyAgreementKey,
@@ -596,7 +599,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
 
     const result = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -629,27 +632,29 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     // ceremony refuses with the stable-named class instead of proceeding (or
     // collecting) -- the refusal a caller that treats later stages as
     // non-fatal still propagates.
-    const brokenWas = {
-      space: (spaceId: string) => {
-        const space = (was as unknown as { space: (id: string) => any }).space(
-          spaceId
-        )
-        return {
-          ...space,
-          collection: (collectionId: string) => ({
-            ...space.collection(collectionId),
-            // The guarded create is the collection's provisioning write.
-            replaceDescription: async () => {
-              throw new Error('injected: provisioning is down')
-            }
-          })
-        }
+    const broken = (spaceId: string) => {
+      const space = (was as unknown as { space: (id: string) => any }).space(
+        spaceId
+      )
+      return {
+        ...space,
+        collection: (collectionId: string) => ({
+          ...space.collection(collectionId),
+          // The guarded create is the collection's provisioning write.
+          replaceDescription: async () => {
+            throw new Error('injected: provisioning is down')
+          }
+        })
       }
+    }
+    const brokenWas = {
+      space: broken,
+      spaceAt: () => broken(SPACE_ID)
     } as unknown as WasClient
 
     const attempt = ensureAccountGenesis({
       was: brokenWas,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -679,7 +684,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
 
     const result = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -733,7 +738,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     // behind it: the rewrite re-reads and lands on the served ETag.
     const result = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -773,7 +778,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
 
     const first = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -801,7 +806,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const before = await fakes.idStore.getKeyMapRaw!()
     await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -834,7 +839,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     // the one retry the rewrite allows fails too, and the failure propagates.
     const attempt = ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -874,7 +879,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
 
     const result = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -916,7 +921,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     const run = () =>
       ensureAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
         clientKeyAgreementKey,
@@ -985,7 +990,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     const run = (userKey: typeof keySet.userKey) =>
       ensureAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
         clientKeyAgreementKey,
@@ -999,7 +1004,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     // client's user key, every collection is still epoch-less.
     const torn = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -1045,7 +1050,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
 
     const result = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -1101,7 +1106,7 @@ describe('ensureAccountGenesis (ceremony events)', () => {
     const run = () =>
       ensureAccountGenesis({
         was,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
         clientKeyAgreementKey,
@@ -1155,7 +1160,7 @@ describe('ensureAccountGenesis (ceremony events)', () => {
 
     const torn = await ensureAccountGenesis({
       was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
       clientKeyAgreementKey,
@@ -1183,20 +1188,23 @@ describe('ensureAccountGenesis (ceremony events)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { storeFor } = memoryDescriptorStores()
-    const brokenWas = {
-      space: () => ({
-        collection: () => ({
-          replaceDescription: async () => {
-            throw new Error('injected: provisioning is down')
-          }
-        })
+    const brokenSpace = () => ({
+      url: SPACE_URL,
+      collection: () => ({
+        replaceDescription: async () => {
+          throw new Error('injected: provisioning is down')
+        }
       })
+    })
+    const brokenWas = {
+      space: brokenSpace,
+      spaceAt: brokenSpace
     } as unknown as WasClient
 
     await expect(
       ensureAccountGenesis({
         was: brokenWas,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
         clientKeyAgreementKey,

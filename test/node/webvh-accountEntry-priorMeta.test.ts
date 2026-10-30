@@ -104,7 +104,7 @@ async function clientAnchoredAccount() {
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore: fixture.idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
     updateKeys
@@ -199,7 +199,7 @@ describe('an account-log append resolves the log once', () => {
     const generationId = mintGenerationId()
     const rung = await clientAnnexRung({ ladderSeed })
     const created = await createClientAnnexLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       generationId,
       updateKeyPublicKeyMultibase: rung.keyMultibase,

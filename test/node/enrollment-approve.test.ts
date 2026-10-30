@@ -322,7 +322,7 @@ describe('approveEnrollment chain-head pin', () => {
     const first = await newClientRequest()
     await ensureDidWebvh({
       idStore,
-      wasServerUrl: 'http://localhost:8080',
+      baseServerUrl: 'http://localhost:8080',
       spaceId: ACCOUNT_SPACE_ID,
       clientKeys: {
         signingKeyMultibase: first.request.signingKeyMultibase,
@@ -500,10 +500,11 @@ describe('client-enrollment events', () => {
       completeEnrollmentCore({
         clientSeed,
         webvhUpdateKeys,
+        // A well-formed SCID: the pointer's DID locates its own log and is
+        // parsed before the fetch.
         pointer: {
-          spaceId: ACCOUNT_SPACE_ID,
-          host: 'https://was.example',
-          did: ACCOUNT_DID
+          spaceUrl: 'https://example.com/space/abc/',
+          did: 'did:webvh:durCj2h8E75t8UAyyiZE6WBJwJuPasUm8C1d3KJcqZTfeu:example.com:space:abc:id'
         }
       })
     ).rejects.toThrow(EnrollmentPendingError)

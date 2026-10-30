@@ -335,8 +335,7 @@ export async function wrapKeyringRecord({
         ? {
             pointer: {
               ...(pointer.did ? { did: pointer.did } : {}),
-              spaceId: pointer.spaceId,
-              host: pointer.host
+              spaceUrl: pointer.spaceUrl
             }
           }
         : {}),

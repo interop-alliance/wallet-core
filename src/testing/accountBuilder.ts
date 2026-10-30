@@ -48,7 +48,7 @@
  * would.
  */
 import { WasClient } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
+import { spaceUrlById } from '@interop/was-client/paths'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { agentsFromSeed } from '@interop/was-client/identity'
@@ -153,7 +153,7 @@ export type BuilderCredential = Awaited<ReturnType<typeof mintCredential>>
  * same `credential` again.
  *
  * @param options {object}
- * @param options.serverUrl {string}   the booted server's URL
+ * @param options.baseServerUrl {string}   the booted server's URL
  * @param [options.credential] {BuilderCredential}   from `mintCredential`; a
  *   fresh high-entropy one when omitted
  * @returns {Promise<object>}   the account's ids, the credential's ladder seed
@@ -161,10 +161,10 @@ export type BuilderCredential = Awaited<ReturnType<typeof mintCredential>>
  *   carried
  */
 export async function establishAccount({
-  serverUrl,
+  baseServerUrl,
   credential
 }: {
-  serverUrl: string
+  baseServerUrl: string
   credential?: BuilderCredential
 }) {
   const { spaceId, ladderSeed, standing, lowEntropy, unlock } =
@@ -173,7 +173,7 @@ export async function establishAccount({
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
   const bootstrapWas = new WasClient({
-    serverUrl: spacesUrl({ baseUrl: serverUrl }),
+    baseServerUrl,
     zcapClient: bootstrapZcap
   })
   const signer = userKeyRosterLogSigner({ keyAgent: bootstrapAgent })
@@ -182,7 +182,7 @@ export async function establishAccount({
   // one carrying the sibling delegation.
   const binds: Array<{ delegation: IZcap; delegatedClients?: IZcap }> = []
   const establishment = await establishCredentialAnchoredAccount({
-    wasServerUrl: serverUrl,
+    baseServerUrl,
     spaceId,
     ladderSeed,
     standing: {
@@ -204,7 +204,7 @@ export async function establishAccount({
     },
     rosterStoreFor: ({ did, log }) =>
       userKeyRosterDescriptorStore({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: bootstrapZcap,
         spaceId,
         resolveController: async () => webvhResourceLogController({ did, log }),
@@ -213,7 +213,7 @@ export async function establishAccount({
       }),
     collectionStoreFor: ({ did, log }) =>
       accountCollectionStores({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: bootstrapZcap,
         spaceId,
         did,
@@ -234,7 +234,7 @@ export async function establishAccount({
     throw new Error('fixture: the establishment left no pointer')
   }
   return {
-    serverUrl,
+    baseServerUrl,
     spaceId,
     accountDid: establishment.did,
     annexSpaceId: clientAnnexDidParts({ did: pointed }).spaceId,
@@ -251,19 +251,19 @@ export type EstablishedAccount = Awaited<ReturnType<typeof establishAccount>>
  * A credential-anchored account with one passphrase.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.baseServerUrl {string}
  * @param [options.passphrase] {string}   a unique one by default
  * @returns {Promise<object>}   the established account plus `passphrase`
  */
 export async function buildPassphraseAccount({
-  serverUrl,
+  baseServerUrl,
   passphrase = uniquePassphrase()
 }: {
-  serverUrl: string
+  baseServerUrl: string
   passphrase?: string
 }): Promise<EstablishedAccount & { passphrase: string }> {
   const account = await establishAccount({
-    serverUrl,
+    baseServerUrl,
     credential: await mintCredential({ passphrase })
   })
   return { ...account, passphrase }
@@ -289,9 +289,10 @@ async function ladderContext({
   account: EstablishedAccount
   pinStore: ResourceLogPinStore
 }) {
-  const { serverUrl, spaceId, accountDid, annexSpaceId, ladderSeed } = account
+  const { baseServerUrl, spaceId, accountDid, annexSpaceId, ladderSeed } =
+    account
   const readAccountLog = async () =>
-    verifyAccountLog({ did: accountDid, spaceId, host: serverUrl, pinStore })
+    verifyAccountLog({ did: accountDid, pinStore })
 
   // The transient visit: a per-visit key enrolled into the pointed
   // generation through the record's sibling delegation.
@@ -302,7 +303,7 @@ async function ladderContext({
     readAccountDocument: async () => (await readAccountLog()).doc,
     storeForGenerationId: generationId =>
       delegatedWebvhLogStore({
-        host: serverUrl,
+        baseServerUrl,
         spaceId: annexSpaceId,
         collectionId: generationId,
         delegation: account.sibling,
@@ -321,7 +322,7 @@ async function ladderContext({
     // Public reads of the world-readable `did.jsonl`, and the bridge's
     // delegated PUT, invoked by the credential's standing client.
     idStore: delegatedWebvhLogStore({
-      host: serverUrl,
+      baseServerUrl,
       spaceId,
       collectionId: ID_COLLECTION.id,
       delegation: account.bridge,
@@ -331,7 +332,7 @@ async function ladderContext({
     // The controller view resolves per operation, so an append after an
     // entry anchors at the post-entry head.
     rosterStore: userKeyRosterDescriptorStore({
-      storageServerUrl: serverUrl,
+      baseServerUrl,
       zcapClient: webvhZcapClient({ keyAgent, did: enrolled.clientAnnexDid }),
       spaceId,
       resolveController: async () =>
@@ -381,10 +382,13 @@ export async function addStandingCredential({
   account: EstablishedAccount
   passphrase?: string
 }) {
-  const { serverUrl, spaceId, accountDid, annexSpaceId } = account
+  const { baseServerUrl, spaceId, accountDid, annexSpaceId } = account
   const pinStore = memoryResourceLogPinStore()
   const ctx = await ladderContext({ account, pinStore })
-  const pointer = { did: accountDid, spaceId, host: serverUrl }
+  const pointer = {
+    did: accountDid,
+    spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
+  }
   const { standing, ladderSeed } = await mintCredential({ passphrase })
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   const boundZcapClient = await ladderVmZcapClient({ accountDid, ladderSeed })
@@ -397,19 +401,14 @@ export async function addStandingCredential({
   })
   const sibling = await mintDelegatedClientsDelegation({
     zcapClient: boundZcapClient,
-    wasServerUrl: serverUrl,
+    baseServerUrl,
     clientAnnexSpaceId: annexSpaceId,
     controller: standing.clientDid
   })
 
   // The bound credential's annex rung 0, committed under the acting
   // credential's rung through the acting record's sibling.
-  const { doc } = await verifyAccountLog({
-    did: accountDid,
-    spaceId,
-    host: serverUrl,
-    pinStore
-  })
+  const { doc } = await verifyAccountLog({ did: accountDid, pinStore })
   const clientAnnexDid = delegatedClientsPointer({ doc })
   if (clientAnnexDid === undefined) {
     throw new Error('fixture: the account points at no annex generation')
@@ -418,7 +417,7 @@ export async function addStandingCredential({
   await commitClientAnnexRung({
     store: clientAnnexLogStore({
       was: new WasClient({
-        serverUrl: spacesUrl({ baseUrl: serverUrl }),
+        baseServerUrl,
         zcapClient: account.standing.agents.zcapClient
       }),
       spaceId: annexSpaceId,
@@ -473,10 +472,13 @@ export async function issueRecoveryCode({
 }: {
   account: EstablishedAccount
 }) {
-  const { serverUrl, spaceId, accountDid } = account
+  const { baseServerUrl, spaceId, accountDid } = account
   const pinStore = memoryResourceLogPinStore()
   const ctx = await ladderContext({ account, pinStore })
-  const pointer = { did: accountDid, spaceId, host: serverUrl }
+  const pointer = {
+    did: accountDid,
+    spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
+  }
   const code = generateRecoveryCode()
   const client = await recoveryClientFromCode({ code })
   const recovery = {
@@ -534,15 +536,18 @@ export async function enrollClient({
 }: {
   account: EstablishedAccount
 }) {
-  const { serverUrl, spaceId, accountDid, ladderSeed, standing } = account
+  const { baseServerUrl, spaceId, accountDid, ladderSeed, standing } = account
   const pinStore = memoryResourceLogPinStore()
   const enrolled = await selfEnrollClientCore({
-    pointer: { did: accountDid, spaceId, host: serverUrl },
+    pointer: {
+      did: accountDid,
+      spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
+    },
     ladderSeed,
     credentialKeyAgreementKey: standing.agents
       .keyAgreementKey as IKeyAgreementKey,
     logStore: delegatedWebvhLogStore({
-      host: serverUrl,
+      baseServerUrl,
       spaceId,
       collectionId: ID_COLLECTION.id,
       delegation: account.bridge,
@@ -573,19 +578,19 @@ export async function enrollClient({
  * The passphrase shape plus a second standing credential.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.baseServerUrl {string}
  * @param [options.passphrase] {string}   a unique one by default
  * @returns {Promise<object>}   the passphrase account plus `second`
  */
 export async function buildSecondCredentialAccount({
-  serverUrl,
+  baseServerUrl,
   passphrase
 }: {
-  serverUrl: string
+  baseServerUrl: string
   passphrase?: string
 }) {
   const account = await buildPassphraseAccount({
-    serverUrl,
+    baseServerUrl,
     ...(passphrase === undefined ? {} : { passphrase })
   })
   return { ...account, second: await addStandingCredential({ account }) }
@@ -595,19 +600,19 @@ export async function buildSecondCredentialAccount({
  * The passphrase shape plus one issued, unspent recovery code.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.baseServerUrl {string}
  * @param [options.passphrase] {string}   a unique one by default
  * @returns {Promise<object>}   the passphrase account plus `recovery`
  */
 export async function buildRecoveryCodeAccount({
-  serverUrl,
+  baseServerUrl,
   passphrase
 }: {
-  serverUrl: string
+  baseServerUrl: string
   passphrase?: string
 }) {
   const account = await buildPassphraseAccount({
-    serverUrl,
+    baseServerUrl,
     ...(passphrase === undefined ? {} : { passphrase })
   })
   return { ...account, recovery: await issueRecoveryCode({ account }) }
@@ -617,19 +622,19 @@ export async function buildRecoveryCodeAccount({
  * The passphrase shape plus one enrolled client.
  *
  * @param options {object}
- * @param options.serverUrl {string}
+ * @param options.baseServerUrl {string}
  * @param [options.passphrase] {string}   a unique one by default
  * @returns {Promise<object>}   the passphrase account plus `client`
  */
 export async function buildEnrolledClientAccount({
-  serverUrl,
+  baseServerUrl,
   passphrase
 }: {
-  serverUrl: string
+  baseServerUrl: string
   passphrase?: string
 }) {
   const account = await buildPassphraseAccount({
-    serverUrl,
+    baseServerUrl,
     ...(passphrase === undefined ? {} : { passphrase })
   })
   return { ...account, client: await enrollClient({ account }) }

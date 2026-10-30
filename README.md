@@ -38,9 +38,9 @@ The subpaths:
   shared collection ids and descriptive specs (`private-credentials`,
   `public-credentials`, `wallet-activity`, `app-keys`), the `wallet-activity`
   wire shape with its pure `addHistory*` payload builders, the
-  `publicCredentialUrl` derivation, and the `was-link` QR hand-off contract
-  (`buildWasLinkPayload` / `parseWasLinkPayload` / `encodeWasLinkSecret`) with
-  its structural recognizer, `isWasLinkPayload`. It also carries the `inbox`
+  `publicCredentialUrl` derivation, and the `pws-link` QR hand-off contract
+  (`buildPwsLinkPayload` / `parsePwsLinkPayload` / `encodePwsLinkSecret`) with
+  its structural recognizer, `isPwsLinkPayload`. It also carries the `inbox`
   collection spec and the inbox message envelope (`inboxGrantMessage` /
   `parseInboxGrantMessage`). Contacts collection specs live in
   [`@interop/social-core`](https://npm.im/@interop/social-core).
@@ -242,8 +242,8 @@ import { SyncEngine, runPull, runPush } from '@interop/wallet-core/sync'
 import {
   PRIVATE_CREDENTIALS_COLLECTION,
   publicCredentialUrl,
-  buildWasLinkPayload,
-  parseWasLinkPayload,
+  buildPwsLinkPayload,
+  parsePwsLinkPayload,
   addHistoryCredentialCreated
 } from '@interop/wallet-core/space'
 ```

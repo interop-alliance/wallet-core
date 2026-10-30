@@ -24,8 +24,9 @@ import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-stores'
+const SPACE_URL = `${WAS_URL}/space/${SPACE_ID}/`
 const LOG_URL = `${WAS_URL}/space/${SPACE_ID}/id/${DID_LOG_RESOURCE}`
-const ACCOUNT = { wasServerUrl: WAS_URL, spaceId: SPACE_ID }
+const ACCOUNT = { baseServerUrl: WAS_URL, spaceId: SPACE_ID }
 
 /**
  * Serves the account log at its URL and a 404 everywhere else (the
@@ -57,7 +58,7 @@ function stubAccountLog({
 async function bareParts() {
   const client = await agentsFromSeed({ seed: fixedSeed(5) })
   return {
-    storageServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     zcapClient: client.zcapClient,
     spaceId: SPACE_ID,
     pinStore: memoryResourceLogPinStore(),
@@ -79,7 +80,7 @@ describe('collectionDescriptorStores', () => {
         reached.push(collectionId)
         return {
           id: collectionId,
-          spaceId: SPACE_ID,
+          spaceUrl: SPACE_URL,
           getHistoryLog: async () => null
         } as unknown as Collection
       },

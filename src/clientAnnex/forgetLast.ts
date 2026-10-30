@@ -356,7 +356,7 @@ function lastClientTransitionOutcome(
  * @param options.annex.revoke {Function}   `(delegation) => Promise<void>`
  *   -- POSTs a revocation (was-client's `WasClient#revoke`, bound by the
  *   caller; the invocation signs as the still-standing client)
- * @param options.annex.wasServerUrl {string}   the ACCOUNT Space's storage
+ * @param options.annex.baseServerUrl {string}   the ACCOUNT Space's storage
  *   server (the fresh generation delegation's target host)
  * @param options.annex.accountSpaceId {string}   the ACCOUNT Space's id (the
  *   fresh delegation's target subtree)
@@ -436,7 +436,7 @@ async function forgetLastEnrolledClientCore({
       generationId: string
     }) => ClientAnnexWriteStore
     revoke: (delegation: IDelegatedZcap) => Promise<void>
-    wasServerUrl: string
+    baseServerUrl: string
     accountSpaceId: string
   }
   onBeforeRemoval: (published: {
@@ -746,7 +746,7 @@ async function retireLadderGenerationDelegations({
       generationId: string
     }) => ClientAnnexWriteStore
     revoke: (delegation: IDelegatedZcap) => Promise<void>
-    wasServerUrl: string
+    baseServerUrl: string
     accountSpaceId: string
   }
   now: number
@@ -860,7 +860,7 @@ async function retireLadderGenerationDelegations({
       mintGenerationDelegation: async ({ clientAnnexDid }) =>
         mintGenerationDelegation({
           zcapClient: ladderClient,
-          wasServerUrl: annex.wasServerUrl,
+          baseServerUrl: annex.baseServerUrl,
           spaceId: annex.accountSpaceId,
           clientAnnexDid,
           now

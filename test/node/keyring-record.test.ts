@@ -325,8 +325,7 @@ async function unlockFor(secret: string) {
 describe('the signed keyring record', () => {
   const pointer = {
     did: 'did:webvh:z6MkScid:localhost%3A8080:space:space-1:id',
-    spaceId: 'space-1',
-    host: 'http://localhost:8080'
+    spaceUrl: 'http://localhost:8080/space/space-1/'
   }
 
   it('round-trips a signed record and returns its bind timestamp', async () => {

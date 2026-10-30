@@ -31,7 +31,7 @@ import type { KeyringRecordContents } from './recordEnvelope.js'
  *   deriving the same unlock identity, so the caller names its method's set
  *   (`KEYRING_KDF` for a passphrase) and a method that omits it fails to
  *   compile instead of silently reading the passphrase-salted unlock Space.
- * @param options.storageServerUrl {string}   the WAS server origin
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
  *   (`(await was.service()).description`), so this one skips discovery
@@ -40,17 +40,17 @@ import type { KeyringRecordContents } from './recordEnvelope.js'
 export async function fetchKeyringRecord({
   secret,
   kdf,
-  storageServerUrl,
+  baseServerUrl,
   serviceDescription
 }: {
   secret: string | Uint8Array
   kdf: UnlockKdf
-  storageServerUrl: string
+  baseServerUrl: string
   serviceDescription?: ServiceDescription
 }): Promise<(KeyringRecordContents & { unlockSpaceId: string }) | null> {
   const unlock = await deriveUnlockIdentity({ secret, kdf })
   const record = await getUnlockKeyring({
-    storageServerUrl,
+    baseServerUrl,
     zcapClient: unlock.zcapClient,
     serviceDescription,
     spaceId: unlock.spaceId

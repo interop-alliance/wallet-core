@@ -35,7 +35,7 @@ import {
   type Space
 } from '@interop/was-client'
 import { resourceLogStore } from '@interop/was-client/log'
-import { spacesUrl } from '@interop/was-client/paths'
+import { spaceIdOfUrl } from '@interop/was-client/paths'
 import type {
   ResourceLogPinStore,
   ResourceLogSigner
@@ -107,7 +107,7 @@ export function collectionDescriptorLogStore({
     resolveController,
     pinStore,
     logId: collectionDescriptorLogPinId({
-      spaceId: collection.spaceId,
+      spaceId: spaceIdOfUrl(collection.spaceUrl),
       collectionId: collection.id
     }),
     signer,
@@ -189,7 +189,7 @@ export function collectionDescriptorStores({
  * epoch costs nothing.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}   the storage server the account
+ * @param options.baseServerUrl {string}   the storage server the account
  *   lives on
  * @param options.zcapClient {ZcapClient}   the signing client every request
  *   rides
@@ -214,7 +214,7 @@ export function collectionDescriptorStores({
  * @returns {CollectionStoreFor}
  */
 export function accountCollectionStores({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   spaceId,
   did,
@@ -224,7 +224,7 @@ export function accountCollectionStores({
   capability,
   serviceDescription
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
   did: string
@@ -238,7 +238,7 @@ export function accountCollectionStores({
   return collectionDescriptorStores({
     collectionFor: collectionId => {
       space ??= new WasClient({
-        serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
+        baseServerUrl,
         zcapClient,
         serviceDescription
       }).space(spaceId, { capability })
@@ -246,8 +246,6 @@ export function accountCollectionStores({
     },
     resolveController: accountControllerResolver({
       did,
-      spaceId,
-      host: storageServerUrl,
       pinStore,
       log
     }),

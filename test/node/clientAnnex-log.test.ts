@@ -19,7 +19,6 @@ import {
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
 import {
   memoryResourceLogPinStore,
   ResourceLogContinuityError
@@ -280,7 +279,7 @@ function fakeServer() {
     descriptions,
     resources,
     was: new WasClient({
-      serverUrl: spacesUrl({ baseUrl: WAS_URL }),
+      baseServerUrl: WAS_URL,
       zcapClient
     }),
     zcapClient
@@ -326,7 +325,7 @@ describe('createClientAnnexLog', () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const generationId = mintGenerationId()
     const created = await createClientAnnexLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       generationId,
       updateKeyPublicKeyMultibase: minting.keyMultibase,
@@ -374,7 +373,7 @@ describe('createClientAnnexLog', () => {
     const { minting, other } = await mintedGenesisAuthority()
     await expect(
       createClientAnnexLog({
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: AUX_SPACE_ID,
         generationId: mintGenerationId(),
         updateKeyPublicKeyMultibase: minting.keyMultibase,
@@ -388,7 +387,7 @@ describe('createClientAnnexLog', () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     await expect(
       createClientAnnexLog({
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: AUX_SPACE_ID,
         generationId: 'id',
         updateKeyPublicKeyMultibase: minting.keyMultibase,
@@ -520,7 +519,7 @@ describe('delegatedWebvhLogStore', () => {
     const server = fakeServer()
     const generationId = mintGenerationId()
     const store = delegatedWebvhLogStore({
-      host: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
@@ -552,7 +551,7 @@ describe('delegatedWebvhLogStore', () => {
     const generationId = mintGenerationId()
     const path = `/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`
     const store = delegatedWebvhLogStore({
-      host: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
@@ -583,7 +582,7 @@ describe('delegatedWebvhLogStore', () => {
       contentType: 'text/jsonl'
     })
     const store = delegatedWebvhLogStore({
-      host: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
@@ -627,7 +626,7 @@ describe('delegatedWebvhLogStore', () => {
       contentType: 'text/jsonl'
     })
     const store = delegatedWebvhLogStore({
-      host: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
@@ -676,7 +675,7 @@ describe('delegatedWebvhLogStore', () => {
       })
     )
     const store = delegatedWebvhLogStore({
-      host: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       collectionId: 'id',
       delegation: DELEGATION,
@@ -700,7 +699,7 @@ describe('delegatedWebvhLogStore', () => {
       contentType: 'text/jsonl'
     })
     const store = delegatedWebvhLogStore({
-      host: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
@@ -798,7 +797,7 @@ describe('mintClientAnnexGeneration', () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const minted = await mintClientAnnexGeneration({
       was: server.was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       updateKeyPublicKeyMultibase: minting.keyMultibase,
@@ -868,7 +867,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
     const ownHash = await deriveNextKeyHash(rung.keyMultibase)
     const minted = await mintCredentialClientAnnexGeneration({
       was: server.was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed,
@@ -888,7 +887,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
     // states the same update key under a different generation id.
     const second = await mintCredentialClientAnnexGeneration({
       was: server.was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed,
@@ -938,7 +937,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
     })
     const minted = await mintCredentialClientAnnexGeneration({
       was: server.was,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed: crypto.getRandomValues(new Uint8Array(32)),
@@ -954,7 +953,7 @@ describe('client annex pin continuity (the transient session)', () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const generationId = mintGenerationId()
     const created = await createClientAnnexLog({
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       generationId,
       updateKeyPublicKeyMultibase: minting.keyMultibase,
@@ -998,6 +997,9 @@ describe('client annex pin continuity (the transient session)', () => {
 
 describe('delegatedClientsSpaceHistory', () => {
   const ACCOUNT_DID = 'did:webvh:QmScid:storage.example:space:account-space-1'
+  // A real-shaped SCID: the Space history reads each DID's log location
+  // through the did:webvh parser, which refuses a placeholder SCID.
+  const ANNEX_SCID = 'QmYgtfMBZo3ajW5rmUhzgCbHPJaoZFuZDBwstCtoxSThwm'
   const annexDid = ({
     spaceId,
     generationId,
@@ -1006,7 +1008,7 @@ describe('delegatedClientsSpaceHistory', () => {
     spaceId: string
     generationId: string
     host?: string
-  }) => `did:webvh:QmAnnexScid:${host}:space:${spaceId}:${generationId}`
+  }) => `did:webvh:${ANNEX_SCID}:${host}:space:${spaceId}:${generationId}`
 
   /**
    * A synthetic account log: one entry per supplied pointer value, with
@@ -1037,14 +1039,14 @@ describe('delegatedClientsSpaceHistory', () => {
     ).toEqual([])
   })
 
-  it('reads the one Space a single pointer names, with its host', () => {
+  it('reads the one Space a single pointer names, with its base server URL', () => {
     const did = annexDid({
       spaceId: 'aux-1',
       generationId: 'gen-AAAAAAAAAAAAAAAA'
     })
     const log = logWithPointers([undefined, did])
     expect(delegatedClientsSpaceHistory({ log })).toEqual([
-      { did, host: 'storage.example', spaceId: 'aux-1' }
+      { did, baseServerUrl: 'https://storage.example/', spaceId: 'aux-1' }
     ])
   })
 
@@ -1078,8 +1080,9 @@ describe('delegatedClientsSpaceHistory', () => {
   })
 
   it('carries a foreign host through, percent-decoded', () => {
-    // A migrated account: the caller compares the host and reports an entry
-    // this deployment cannot address rather than deleting the id here.
+    // A migrated account: the caller compares the base server URL and reports
+    // an entry this deployment cannot address rather than deleting the id
+    // here.
     const log = logWithPointers([
       annexDid({
         spaceId: 'aux-1',
@@ -1087,8 +1090,8 @@ describe('delegatedClientsSpaceHistory', () => {
         host: 'old.example%3A8443'
       })
     ])
-    expect(delegatedClientsSpaceHistory({ log })[0]!.host).toBe(
-      'old.example:8443'
+    expect(delegatedClientsSpaceHistory({ log })[0]!.baseServerUrl).toBe(
+      'https://old.example:8443/'
     )
   })
 
@@ -1117,8 +1120,10 @@ describe('delegatedClientsSpaceHistory', () => {
 
 describe('delegatedClientsPointerHistory', () => {
   const ACCOUNT_DID = 'did:webvh:QmScid:storage.example:space:account-space-1'
-  const GEN_A = 'did:webvh:QmA:storage.example:space:aux-1:gen-AAAAAAAAAAAAAAAA'
-  const GEN_B = 'did:webvh:QmB:storage.example:space:aux-1:gen-BBBBBBBBBBBBBBBB'
+  const GEN_A =
+    'did:webvh:QmYgtfMBZo3ajW5rmUhzgCbHPJaoZFuZDBwstCtoxSThwm:storage.example:space:aux-1:gen-AAAAAAAAAAAAAAAA'
+  const GEN_B =
+    'did:webvh:QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR:storage.example:space:aux-1:gen-BBBBBBBBBBBBBBBB'
 
   /**
    * A synthetic account log: one entry per supplied pointer value, with

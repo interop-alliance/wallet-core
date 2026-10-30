@@ -91,7 +91,7 @@ async function accountWithPendingEnrollee({
   })
   const { did } = await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     didWebKeys: DID_WEB_KEYS,
     clientKeys: {
@@ -256,7 +256,7 @@ describe('conditional did.jsonl publish', () => {
     })
     await ensureDidWebvh({
       idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: DID_WEB_KEYS,
       clientKeys: {
@@ -289,7 +289,7 @@ describe('conditional did.jsonl publish', () => {
     await expect(
       ensureDidWebvh({
         idStore: staleStore,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         didWebKeys: DID_WEB_KEYS,
         clientKeys: {

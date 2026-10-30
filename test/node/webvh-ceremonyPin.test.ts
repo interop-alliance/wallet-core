@@ -67,7 +67,7 @@ async function provisionedAccount({
   })
   await ensureDidWebvh({
     idStore,
-    wasServerUrl: WAS_URL,
+    baseServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     didWebKeys: keyMap(),
     clientKeys: { signingKeyMultibase, keyAgreementKeyMultibase },
@@ -232,7 +232,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
 
     const refusal = (await ensureDidWebvh({
       idStore: account.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: keyMap(),
       clientKeys: account.clientKeys,
@@ -260,7 +260,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     })
     const refusal = (await ensureDidWebvh({
       idStore: fresh.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: keyMap(),
       clientKeys: account.clientKeys,
@@ -282,7 +282,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     await expect(
       ensureDidWebvh({
         idStore: account.idStore,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         didWebKeys: { ...keyMap(), webvh: { did: OTHER_DID } },
         clientKeys: account.clientKeys,
@@ -296,7 +296,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     await expect(
       ensureDidWebvh({
         idStore: account.idStore,
-        wasServerUrl: WAS_URL,
+        baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         didWebKeys: keyMap(),
         clientKeys: account.clientKeys,
@@ -334,7 +334,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
 
     const adopted = await ensureDidWebvh({
       idStore: visitor.idStore,
-      wasServerUrl: WAS_URL,
+      baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: keyMap(),
       clientKeys: account.clientKeys,

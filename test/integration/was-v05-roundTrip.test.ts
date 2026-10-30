@@ -25,12 +25,7 @@
  */
 import { WasClient } from '@interop/was-client'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import {
-  spaceMeta,
-  spacePath,
-  toUrl,
-  spacesUrl
-} from '@interop/was-client/paths'
+import { spaceMetaUrl, spaceUrlById } from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -90,12 +85,12 @@ async function sessionStores({
   account: EstablishedAccount
   visit: Awaited<ReturnType<typeof transientVisit>>
 }) {
-  const { serverUrl, spaceId, accountDid, ladderSeed } = account
+  const { baseServerUrl, spaceId, accountDid, ladderSeed } = account
   const signer = userKeyRosterLogSigner({
     keyAgent: await ladderVmAgent({ ladderSeed })
   })
   const rosterStore = userKeyRosterDescriptorStore({
-    storageServerUrl: serverUrl,
+    baseServerUrl,
     zcapClient: visit.zcapClient,
     spaceId,
     resolveController: async () =>
@@ -104,8 +99,6 @@ async function sessionStores({
         log: (
           await verifyAccountLog({
             did: accountDid,
-            spaceId,
-            host: serverUrl,
             pinStore: visit.pinStore
           })
         ).log
@@ -120,7 +113,7 @@ async function sessionStores({
     log: Awaited<ReturnType<typeof verifyAccountLog>>['log']
   }) =>
     accountCollectionStores({
-      storageServerUrl: serverUrl,
+      baseServerUrl,
       zcapClient: visit.zcapClient,
       spaceId,
       did: accountDid,
@@ -148,9 +141,9 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
   })
 
   it('serves WAS 0.5 and establishes a credential-anchored account', async () => {
-    const { serverUrl } = server
+    const { serverUrl: baseServerUrl } = server
     const service = await new WasClient({
-      serverUrl: spacesUrl({ baseUrl: serverUrl }),
+      baseServerUrl,
       zcapClient: didKeyZcapClient({
         keyAgent: await ladderVmAgent({
           ladderSeed: crypto.getRandomValues(new Uint8Array(32))
@@ -162,7 +155,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     )
     expect(service.version).toBe('0.5')
 
-    account = await buildRecoveryCodeAccount({ serverUrl })
+    account = await buildRecoveryCodeAccount({ baseServerUrl })
     expect(account.accountDid).toMatch(/^did:webvh:/)
   })
 
@@ -259,28 +252,29 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
   })
 
   it('mends an annex whose Space was deleted through a DELETE-only capability', async () => {
-    const { serverUrl, spaceId, accountDid, annexSpaceId, ladderSeed } = account
+    const { baseServerUrl, spaceId, accountDid, annexSpaceId, ladderSeed } =
+      account
     const { standing } = account
 
     // The tear: the ladder VM delegates a DELETE-only child of the annex
     // Space's root to the standing client, which deletes the Space.
     const capability = await mintSpaceRootVerbCapability({
       zcapClient: await ladderVmZcapClient({ accountDid, ladderSeed }),
-      storageServerUrl: serverUrl,
+      baseServerUrl,
       spaceId: annexSpaceId,
       verb: 'DELETE',
       controller: standing.clientDid
     })
     expect(capability.allowedAction).toEqual(['DELETE'])
     expect(capability.invocationTarget).toBe(
-      `${serverUrl}/space/${annexSpaceId}/`
+      `${baseServerUrl}/space/${annexSpaceId}/`
     )
     expect(capability.invocationTarget).toBe(
-      toUrl({ baseUrl: serverUrl, path: spacePath(annexSpaceId) })
+      spaceUrlById({ baseServerUrl, spaceId: annexSpaceId })
     )
     expect(
       await deleteSpaceWithCapability({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: standing.agents.zcapClient,
         spaceId: annexSpaceId,
         capability
@@ -291,13 +285,11 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     const pinStore = memoryResourceLogPinStore()
     const verified = await verifyAccountLog({
       did: accountDid,
-      spaceId,
-      host: serverUrl,
       pinStore
     })
     const rebinds: Array<{ delegation: IZcap; delegatedClients: IZcap }> = []
     const outcome = await ensureCredentialClientAnnexGeneration({
-      wasServerUrl: serverUrl,
+      baseServerUrl,
       spaceId,
       account: { did: accountDid, doc: verified.doc, log: verified.log },
       ladderSeed,
@@ -307,14 +299,14 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
       },
       bootstrapWasFor: ({ keyAgent }) =>
         new WasClient({
-          serverUrl: spacesUrl({ baseUrl: serverUrl }),
+          baseServerUrl,
           zcapClient: didKeyZcapClient({ keyAgent })
         }),
       delegation: account.bridge,
       delegatedClients: account.sibling,
       idStoreFor: ({ delegation }) =>
         delegatedWebvhLogStore({
-          host: serverUrl,
+          baseServerUrl,
           spaceId,
           collectionId: ID_COLLECTION.id,
           delegation,
@@ -340,7 +332,11 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     // The existence probe: two GETs of the gone Space's Metadata object,
     // each a real 404. The standing client invokes the ladder-delegated
     // GET-only child first, then the ladder VM's bare did:key root-invokes.
-    const metaPath = spaceMeta(annexSpaceId)
+    const metaPath = new URL(
+      spaceMetaUrl({
+        spaceUrl: spaceUrlById({ baseServerUrl, spaceId: annexSpaceId })
+      })
+    ).pathname
     expect(metaPath).toBe(`/space/${annexSpaceId}/meta`)
     const bareLadderDid = (await ladderVmAgent({ ladderSeed })).id!.split(
       '#'
@@ -364,38 +360,46 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
   })
 
   it('deletes the account Space through a DELETE-only capability', async () => {
-    const { serverUrl, spaceId, accountDid, ladderSeed, standing } = mended
+    const { baseServerUrl, spaceId, accountDid, ladderSeed, standing } = mended
     const ladderClient = await ladderVmZcapClient({ accountDid, ladderSeed })
 
     // The GET arm names the Space Metadata object and reads it while the
     // Space stands.
     const probe = await mintSpaceRootVerbCapability({
       zcapClient: ladderClient,
-      storageServerUrl: serverUrl,
+      baseServerUrl,
       spaceId,
       verb: 'GET',
       controller: standing.clientDid
     })
     expect(probe.allowedAction).toEqual(['GET'])
-    expect(probe.invocationTarget).toBe(`${serverUrl}/space/${spaceId}/meta`)
+    expect(probe.invocationTarget).toBe(
+      `${baseServerUrl}/space/${spaceId}/meta`
+    )
     const metaResponse = await new WasClient({
-      serverUrl: spacesUrl({ baseUrl: serverUrl }),
+      baseServerUrl,
       zcapClient: standing.agents.zcapClient
-    }).request({ path: spaceMeta(spaceId), method: 'GET', capability: probe })
+    }).request({
+      url: spaceMetaUrl({ spaceUrl: spaceUrlById({ baseServerUrl, spaceId }) }),
+      method: 'GET',
+      capability: probe
+    })
     expect(metaResponse.status).toBe(200)
 
     const capability = await mintSpaceRootVerbCapability({
       zcapClient: ladderClient,
-      storageServerUrl: serverUrl,
+      baseServerUrl,
       spaceId,
       verb: 'DELETE',
       controller: standing.clientDid
     })
     expect(capability.allowedAction).toEqual(['DELETE'])
-    expect(capability.invocationTarget).toBe(`${serverUrl}/space/${spaceId}/`)
+    expect(capability.invocationTarget).toBe(
+      `${baseServerUrl}/space/${spaceId}/`
+    )
     const deleteAccountSpace = async () =>
       deleteSpaceWithCapability({
-        storageServerUrl: serverUrl,
+        baseServerUrl,
         zcapClient: standing.agents.zcapClient,
         spaceId,
         capability
@@ -403,15 +407,15 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     expect(await deleteAccountSpace()).toEqual({ outcome: 'deleted' })
     expect(await deleteAccountSpace()).toEqual({ outcome: 'not-found' })
 
-    const unauthenticated = await fetch(`${serverUrl}/space/${spaceId}/meta`)
+    const unauthenticated = await fetch(
+      `${baseServerUrl}/space/${spaceId}/meta`
+    )
     await unauthenticated.text()
     expect(unauthenticated.status).toBe(404)
 
     await expect(
       verifyAccountLog({
         did: accountDid,
-        spaceId,
-        host: serverUrl,
         pinStore: memoryResourceLogPinStore()
       })
     ).rejects.toMatchObject({ name: 'AccountLogMissingError' })

@@ -21,7 +21,6 @@
  * it by its own prior discovery.
  */
 import { WasClient, type ServiceDescription } from '@interop/was-client'
-import { spacesUrl } from '@interop/was-client/paths'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 
@@ -32,7 +31,7 @@ import type { ZcapClient } from '@interop/ezcap'
  * DELETE against the Space.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.zcapClient {ZcapClient}   the invoking client
  * @param options.spaceId {string}   the Space to delete
  * @param options.capability {IZcap}   the attached capability (must allow
@@ -46,20 +45,20 @@ import type { ZcapClient } from '@interop/ezcap'
  *   Every other error propagates unchanged
  */
 export async function deleteSpaceWithCapability({
-  storageServerUrl,
+  baseServerUrl,
   zcapClient,
   spaceId,
   capability,
   serviceDescription
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
   capability: IZcap
   serviceDescription?: ServiceDescription
 }): Promise<{ outcome: 'deleted' | 'not-found' }> {
   const was = new WasClient({
-    serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
+    baseServerUrl,
     zcapClient,
     serviceDescription
   })

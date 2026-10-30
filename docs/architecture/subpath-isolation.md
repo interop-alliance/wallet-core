@@ -57,7 +57,7 @@ consumer loads it without the module barrel beside it:
 The same trick serves a cross-package hand-off. `enrollment/connectCode.ts`
 holds only the connect-code prefix and predicate, so a wallet can hand it to
 `@interop/wallet-request`'s input classifier as a recognizer, beside
-`space/wasLink.ts`'s `isWasLinkPayload`, without either wallet-core module
+`space/pwsLink.ts`'s `isPwsLinkPayload`, without either wallet-core module
 pulling in the classifier's own dependency graph. `webvh/did.ts` holds only the
 did:webvh shape check, so wallet-core's own internal consumers can validate an
 account DID without the zcap signing graph (`webvh/zcap.ts` re-exports it and

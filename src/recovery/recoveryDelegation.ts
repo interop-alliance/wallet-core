@@ -22,9 +22,8 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { resourcePath, toUrl } from '@interop/was-client/paths'
-import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import type { AccountPointer } from '../keyring/recordEnvelope.js'
+import { accountLogUrl } from '../webvh/logLocation.js'
 import {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS
@@ -49,25 +48,6 @@ export const RECOVERY_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
 // Re-exported from their shared home (`webvh/standingZcap.ts`), so this
 // module's public surface predating the move is unchanged.
 export { ZCAP_RENEWAL_WINDOW_MS, zcapExpiring } from '../webvh/standingZcap.js'
-
-/**
- * The absolute URL of the account's `did.jsonl` log resource -- the
- * invocation target of the pre-minted recovery delegation. Built with
- * was-client's path builders, the one owner of the WAS path grammar, so the
- * path is joined onto the pointer host's base path (a sub-path deployment
- * keeps its prefix) and the minted target matches the URL the server checks
- * it against byte for byte.
- *
- * @param options {object}
- * @param options.pointer {AccountPointer}
- * @returns {string}
- */
-function didLogUrl({ pointer }: { pointer: AccountPointer }): string {
-  return toUrl({
-    baseUrl: pointer.host,
-    path: resourcePath(pointer.spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
-  })
-}
 
 /**
  * Delegates the narrow log-write bridge to a code-derived client: PUT on the
@@ -96,7 +76,7 @@ export async function delegateLogWrite({
   now?: number
 }): Promise<IZcap> {
   return zcapClient.delegate({
-    invocationTarget: didLogUrl({ pointer }),
+    invocationTarget: accountLogUrl({ spaceUrl: pointer.spaceUrl }),
     controller: recoveryClientDid,
     allowedActions: ['PUT'],
     expires: new Date(now + RECOVERY_DELEGATION_TTL_MS)

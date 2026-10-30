@@ -31,8 +31,8 @@
  *   backup-bundle import writes) among them.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
  *   replicas derive identically.
- * - The `was-link` QR hand-off contract (`buildWasLinkPayload` /
- *   `parseWasLinkPayload` / `encodeWasLinkSecret`) and `isWasLinkPayload`,
+ * - The `pws-link` QR hand-off contract (`buildPwsLinkPayload` /
+ *   `parsePwsLinkPayload` / `encodePwsLinkSecret`) and `isPwsLinkPayload`,
  *   the recognizer a wallet hands `@interop/wallet-request`'s input
  *   classifier.
  * - The inbox message envelope (`InboxGrantMessage`, built by
@@ -114,12 +114,12 @@ export type {
 export { publicCredentialUrl } from './publicLink.js'
 
 export {
-  encodeWasLinkSecret,
-  isWasLinkPayload,
-  buildWasLinkPayload,
-  parseWasLinkPayload
-} from './wasLink.js'
-export type { WasLinkPayload } from './wasLink.js'
+  encodePwsLinkSecret,
+  isPwsLinkPayload,
+  buildPwsLinkPayload,
+  parsePwsLinkPayload
+} from './pwsLink.js'
+export type { PwsLinkPayload } from './pwsLink.js'
 
 export { inboxGrantMessage, parseInboxGrantMessage } from './inboxMessage.js'
 export type { InboxGrantMessage, InboxMessageZcap } from './inboxMessage.js'

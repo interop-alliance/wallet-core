@@ -55,9 +55,8 @@ import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import {
   rootCapabilityId,
-  spaceMeta,
-  spacePath,
-  toUrl
+  spaceMetaUrl,
+  spaceUrlById
 } from '@interop/was-client/paths'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
 
@@ -348,22 +347,22 @@ export async function mintSpaceVerbCapability({
  * Space's `meta` sub-resource, where the Space Description is served.
  *
  * @param options {object}
- * @param options.storageServerUrl {string}
+ * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
  * @param options.verb {SpaceCapabilityVerb}
  * @returns {string}
  */
 export function spaceVerbTarget({
-  storageServerUrl,
+  baseServerUrl,
   spaceId,
   verb
 }: {
-  storageServerUrl: string
+  baseServerUrl: string
   spaceId: string
   verb: SpaceCapabilityVerb
 }): string {
-  const path = verb === 'GET' ? spaceMeta(spaceId) : spacePath(spaceId)
-  return toUrl({ baseUrl: storageServerUrl, path })
+  const spaceUrl = spaceUrlById({ baseServerUrl, spaceId })
+  return verb === 'GET' ? spaceMetaUrl({ spaceUrl }) : spaceUrl
 }
 
 /**
@@ -379,7 +378,7 @@ export function spaceVerbTarget({
  *
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer
- * @param options.storageServerUrl {string}   the Space's storage server
+ * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.spaceId {string}
  * @param options.verb {SpaceCapabilityVerb}   the child's one allowed action
  * @param options.controller {string}   the delegatee DID
@@ -391,7 +390,7 @@ export function spaceVerbTarget({
  */
 export async function mintSpaceRootVerbCapability({
   zcapClient,
-  storageServerUrl,
+  baseServerUrl,
   spaceId,
   verb,
   controller,
@@ -399,20 +398,17 @@ export async function mintSpaceRootVerbCapability({
   now = Date.now()
 }: {
   zcapClient: ZcapClient
-  storageServerUrl: string
+  baseServerUrl: string
   spaceId: string
   verb: SpaceCapabilityVerb
   controller: string
   ttlMs?: number
   now?: number
 }): Promise<IZcap> {
-  const spaceUrl = toUrl({
-    baseUrl: storageServerUrl,
-    path: spacePath(spaceId)
-  })
+  const spaceUrl = spaceUrlById({ baseServerUrl, spaceId })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
-    invocationTarget: spaceVerbTarget({ storageServerUrl, spaceId, verb }),
+    invocationTarget: spaceVerbTarget({ baseServerUrl, spaceId, verb }),
     controller,
     allowedActions: [verb],
     expires: childExpires({ ttlMs, now }),

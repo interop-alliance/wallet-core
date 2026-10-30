@@ -23,8 +23,7 @@ import {
 
 const POINTER: AccountPointer = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',
-  spaceId: 'space-1',
-  host: 'https://was.example'
+  spaceUrl: 'https://was.example/space/space-1/'
 }
 
 /**
@@ -82,7 +81,10 @@ describe('delegateLogWrite', () => {
     })
     await delegateLogWrite({
       zcapClient,
-      pointer: { ...POINTER, host: 'https://was.example/was' },
+      pointer: {
+        ...POINTER,
+        spaceUrl: 'https://was.example/was/space/space-1/'
+      },
       recoveryClientDid: 'did:key:zRecovery'
     })
     expect(calls[0]!.invocationTarget).toBe(
@@ -90,27 +92,13 @@ describe('delegateLogWrite', () => {
     )
   })
 
-  it('does not duplicate a trailing slash on the base path', async () => {
+  it('supplies the missing trailing slash of a stored Space URL', async () => {
     const { zcapClient, calls } = fakeDelegatingClient({
       verificationMethod: 'did:key:zIssuer#zIssuer'
     })
     await delegateLogWrite({
       zcapClient,
-      pointer: { ...POINTER, host: 'https://was.example/was/' },
-      recoveryClientDid: 'did:key:zRecovery'
-    })
-    expect(calls[0]!.invocationTarget).toBe(
-      'https://was.example/was/space/space-1/id/did.jsonl'
-    )
-  })
-
-  it('leaves a bare-origin pointer host unchanged', async () => {
-    const { zcapClient, calls } = fakeDelegatingClient({
-      verificationMethod: 'did:key:zIssuer#zIssuer'
-    })
-    await delegateLogWrite({
-      zcapClient,
-      pointer: { ...POINTER, host: 'https://was.example/' },
+      pointer: { ...POINTER, spaceUrl: 'https://was.example/space/space-1' },
       recoveryClientDid: 'did:key:zRecovery'
     })
     expect(calls[0]!.invocationTarget).toBe(
@@ -172,7 +160,7 @@ describe('mintDelegatedClientsDelegation', () => {
     const before = Date.now()
     const delegation = await mintDelegatedClientsDelegation({
       zcapClient,
-      wasServerUrl: 'https://was.example',
+      baseServerUrl: 'https://was.example',
       clientAnnexSpaceId: 'clientAnnex-space-1',
       controller: 'did:key:zCredential'
     })
@@ -209,7 +197,7 @@ describe('mintDelegatedClientsDelegation', () => {
     })
     const delegation = await mintDelegatedClientsDelegation({
       zcapClient,
-      wasServerUrl: 'https://was.example/was',
+      baseServerUrl: 'https://was.example/was',
       clientAnnexSpaceId: 'clientAnnex-space-1',
       controller: 'did:key:zCredential'
     })
