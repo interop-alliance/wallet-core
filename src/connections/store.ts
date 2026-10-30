@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The directory's storage seam, and its WAS-backed adapter over the
+ * The directory's storage seam, and its PWS-backed adapter over the
  * `connections` collection.
  *
  * One resource per party keeps every write off any shared document. Every
@@ -88,7 +88,7 @@ export interface ConnectionsStore {
  *   `decrypt` is used, to open the envelopes the documents feed serves
  * @returns {ConnectionsStore}
  */
-export function wasConnectionsStore({
+export function pwsConnectionsStore({
   collection,
   cipher
 }: {

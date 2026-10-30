@@ -305,7 +305,7 @@ function lastClientTransitionOutcome(
  *   advances the pin to the head it publishes
  * @param options.clientLogStore {AccountLogStore}   the account-log store
  *   invoked under the STILL-STANDING enrolled client's root authority (an
- *   app's `wasWebvhIdStore` satisfies the narrower shape). The
+ *   app's `pwsWebvhIdStore` satisfies the narrower shape). The
  *   strike-and-reinstall pair publishes through it, because the bridge
  *   `logStore` is often signed by the ladder VM the strike removes and the
  *   reinstall would then be refused under the current-key-set rule. Both

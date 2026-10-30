@@ -182,7 +182,7 @@ whatever its account configuration: the resource-log ladder-append license and
 the `ControllerInventory` ladder-key computation, both over the shared
 `ladderVmIds` recognition in `resourceLog/document.ts` (`webvh` is that reader's
 public home); the unlock-record codec with its `ladder` and `delegatedClients`
-members (`unlock`); `webvh/standingZcap.ts`; the generalized `wasWebvhLogStore`
+members (`unlock`); `webvh/standingZcap.ts`; the generalized `pwsWebvhLogStore`
 / `delegatedWebvhLogStore` seams; and the `GenerationCollect` activity builder
 (`space`). The delegated store's read mode -- an unauthenticated fetch or an
 invocation of the same delegation -- is read off the wallet Space roster's

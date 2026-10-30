@@ -2,7 +2,7 @@
  * Unit tests for the client annex did:webvh machinery: generation identity
  * (`gen-<random>` generation ids), the annex genesis (static rung-0 update
  * authority, prerotation via rung-0 hash commitments, no witnesses,
- * portability off, a bare zero-VM document), the parameterized WAS log store
+ * portability off, a bare zero-VM document), the parameterized PWS log store
  * (an annex collection served without disturbing the account-log paths),
  * the delegated store's CAS/ETag discipline, the in-memory chain-head pin
  * a transient session keeps for annex continuity, and the `#DelegatedClients`
@@ -49,7 +49,7 @@ import {
 } from '../../src/webvh/didWebvh.js'
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { logResourcePinId } from '../../src/webvh/verifyLog.js'
-import { wasWebvhIdStore } from '../../src/webvh/wasIdStore.js'
+import { pwsWebvhIdStore } from '../../src/webvh/pwsIdStore.js'
 import {
   isServiceDiscoveryFetch,
   stubServiceDiscovery
@@ -398,11 +398,11 @@ describe('createClientAnnexLog', () => {
   })
 })
 
-describe('the parameterized WAS log store', () => {
+describe('the parameterized PWS log store', () => {
   it('writes an annex collection without disturbing the account-log paths', async () => {
     const server = fakeServer()
     const generationId = mintGenerationId()
-    const accountStore = wasWebvhIdStore({
+    const accountStore = pwsWebvhIdStore({
       pws: server.pws,
       spaceId: ACCOUNT_SPACE_ID,
       pinStore: memoryResourceLogPinStore()
@@ -448,7 +448,7 @@ describe('the parameterized WAS log store', () => {
 
   it('hands back the ETag the PUT response carries', async () => {
     const server = fakeServer()
-    const accountStore = wasWebvhIdStore({
+    const accountStore = pwsWebvhIdStore({
       pws: server.pws,
       spaceId: ACCOUNT_SPACE_ID,
       pinStore: memoryResourceLogPinStore()
@@ -493,7 +493,7 @@ describe('the parameterized WAS log store', () => {
       logResourcePinId({ spaceId: AUX_SPACE_ID, collectionId: generationId })
     )
     expect(clientAnnexStore.pin.logId).not.toBe(
-      wasWebvhIdStore({
+      pwsWebvhIdStore({
         pws: server.pws,
         spaceId: ACCOUNT_SPACE_ID,
         pinStore

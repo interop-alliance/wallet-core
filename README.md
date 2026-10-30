@@ -53,7 +53,7 @@ The subpaths:
   caller-verified log (for a "your wallets" surface), the
   fetch-and-verify-the-published-log step those ceremonies share (and its
   discovery twin, which takes a Space's owner from the log published there), the
-  WAS-backed store they write through, ZCap signing under the did:webvh
+  PWS-backed store they write through, ZCap signing under the did:webvh
   verification-method id, and a standing credential's update-key ladder (the
   rung and ladder-VM derivation, and the attribution walks that recover a
   credential's acting rung and standing inventory from the log).
@@ -124,7 +124,7 @@ The subpaths:
   encrypted entry per party the wallet has dealt with (an app, an agent, a
   wallet client, a contact, a replica server): the entry codec, which reads
   leniently and keeps unknown members; the resource id keyed by the collection's
-  blinded-index key; the WAS-backed store over the documents feed; the grant
+  blinded-index key; the PWS-backed store over the documents feed; the grant
   index a revocation reads, with the checks that drop a grant delegated to
   another party or targeting another Space; the compare-and-swap upsert helpers
   (`recordGrants`, `removeGrants`, `retireConnection`, `unretireConnection`,

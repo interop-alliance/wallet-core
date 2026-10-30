@@ -1,5 +1,5 @@
 /**
- * Unit tests for the WAS adapter of the `connections` store
+ * Unit tests for the PWS adapter of the `connections` store
  * (`src/connections/store.ts`), over a fake Collection handle whose
  * documents feed is pws-client's own walk: the listing read one request per
  * feed page with each body's ETag, a read at an unknown epoch reported
@@ -22,7 +22,7 @@ import {
   connectionResourceId,
   readConnections,
   recordGrants,
-  wasConnectionsStore
+  pwsConnectionsStore
 } from '../../src/connections/index.js'
 import { HMAC_KEY, SPACE_URL, zcap } from './fixtures/memoryConnections.js'
 
@@ -219,7 +219,7 @@ const cipher = {
 }
 
 async function record(
-  store: ReturnType<typeof wasConnectionsStore>,
+  store: ReturnType<typeof pwsConnectionsStore>,
   did: string,
   zcapId: string
 ) {
@@ -235,10 +235,10 @@ async function record(
   })
 }
 
-describe('wasConnectionsStore', () => {
+describe('pwsConnectionsStore', () => {
   it('seals a new body at its derived id, as a guarded create', async () => {
     const { collection, resources, puts } = fakeCollection()
-    const store = wasConnectionsStore({ collection, cipher })
+    const store = pwsConnectionsStore({ collection, cipher })
     const result = await record(store, AGENT, 'urn:zcap:1')
     const derived = await connectionResourceId({
       hmacKey: HMAC_KEY,
@@ -260,7 +260,7 @@ describe('wasConnectionsStore', () => {
 
   it('lists through the documents feed, one request per page, with ETags', async () => {
     const { collection, calls } = fakeCollection()
-    const store = wasConnectionsStore({ collection, cipher })
+    const store = pwsConnectionsStore({ collection, cipher })
     for (const [did, zcapId] of [
       [AGENT, 'urn:zcap:1'],
       [SECOND, 'urn:zcap:2'],
@@ -285,7 +285,7 @@ describe('wasConnectionsStore', () => {
 
   it('reports a read at an unknown epoch instead of returning it absent', async () => {
     const { collection, resources } = fakeCollection()
-    const store = wasConnectionsStore({ collection, cipher })
+    const store = pwsConnectionsStore({ collection, cipher })
     const { resourceId } = await record(store, AGENT, 'urn:zcap:1')
     const row = resources.get(resourceId)!
     resources.set(resourceId, {
@@ -309,7 +309,7 @@ describe('wasConnectionsStore', () => {
 
   it('reports an envelope served under another id as unreadable', async () => {
     const { collection, resources } = fakeCollection()
-    const store = wasConnectionsStore({ collection, cipher })
+    const store = pwsConnectionsStore({ collection, cipher })
     const { resourceId } = await record(store, AGENT, 'urn:zcap:1')
     resources.set('zMoved', resources.get(resourceId)!)
     resources.delete(resourceId)
@@ -320,7 +320,7 @@ describe('wasConnectionsStore', () => {
 
   it('lets the loser of a create race re-read and merge', async () => {
     const { collection, resources, puts, holdGets } = fakeCollection()
-    const store = wasConnectionsStore({ collection, cipher })
+    const store = pwsConnectionsStore({ collection, cipher })
     // Both writers read the id absent before either writes.
     holdGets(2)
     const [first, second] = await Promise.all([
@@ -354,7 +354,7 @@ describe('wasConnectionsStore', () => {
       }
     }) as unknown as Collection
     // `documents()` resolves a first-page 404 to null.
-    const store = wasConnectionsStore({ collection: missing, cipher })
+    const store = pwsConnectionsStore({ collection: missing, cipher })
     expect(await store.list()).toBeNull()
   })
 })

@@ -59,7 +59,7 @@ import type { WebvhIdStore } from './didWebvh.js'
  * `did.json` from one whose delegation covers `did.jsonl` alone, so naming
  * it at a parameter states the requirement: a caller hands one in only when
  * its authority reaches the projection. An enrolled client passes its own
- * controller-invoking store (`wasWebvhIdStore`); the establishment's root
+ * controller-invoking store (`pwsWebvhIdStore`); the establishment's root
  * window passes its root-invoking store; a transient visit under a
  * generation delegation passes that `delegatedWebvhLogStore`; a writer
  * holding only the account log's bridge delegation omits it.
@@ -144,7 +144,7 @@ const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
  *
  * @param options {object}
  * @param options.store {DidWebProjectionStore}   the raw read plus the
- *   write, which `wasWebvhIdStore` and `delegatedWebvhLogStore` both satisfy.
+ *   write, which `pwsWebvhIdStore` and `delegatedWebvhLogStore` both satisfy.
  *   The read may be unauthenticated, the `id` collection being world-readable
  * @param options.did {string}   the account's did:webvh, from the resolved log
  * @param options.doc {DIDDoc}   the resolved did:webvh document

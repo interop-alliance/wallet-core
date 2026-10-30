@@ -2,11 +2,11 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The WAS-backed adapter for the did:webvh module's narrow store seam: the
+ * The PWS-backed adapter for the did:webvh module's narrow store seam: the
  * account's identity collections as a {@link WebvhIdStore}, so every wallet
  * app drives the log ceremonies through one implementation instead of its own
  * copy. The log-resource half is parameterized over the collection holding
- * `did.jsonl` ({@link wasWebvhLogStore}), so a client-annex generation's log --
+ * `did.jsonl` ({@link pwsWebvhLogStore}), so a client-annex generation's log --
  * a `gen-` collection in the auxiliary annex Space -- is served by the
  * same implementation without touching the account-log paths.
  *
@@ -57,7 +57,7 @@ export type WebvhLogResourceStore = Pick<
 
 /**
  * Builds the parameterized log-resource store over one collection of one
- * Space: the shared implementation behind {@link wasWebvhIdStore} (the
+ * Space: the shared implementation behind {@link pwsWebvhIdStore} (the
  * account's `id` collection) and an annex generation's log store (its
  * `gen-` collection in the auxiliary Space). Signing is whatever the wrapped
  * client signs as -- controller-tier for the account paths, an enrolled
@@ -75,7 +75,7 @@ export type WebvhLogResourceStore = Pick<
  *   capability as before
  * @returns {WebvhLogResourceStore}
  */
-export function wasWebvhLogStore({
+export function pwsWebvhLogStore({
   pws,
   spaceId,
   collectionId,
@@ -99,21 +99,10 @@ export function wasWebvhLogStore({
       logId: logResourcePinId({ spaceId, collectionId })
     },
     getIdResourceRaw: async ({ resourceId }) => {
-      const read = await resource(resourceId).getWithEtag()
-      if (read === null) {
-        return undefined
-      }
-      // The log is served as `text/jsonl`, so the body decodes to a Blob; the
-      // string and stringify arms are defensive fallbacks for a backend that
-      // served (and the codec parsed) a JSON content type instead.
-      const { data, etag } = read
-      const text =
-        data instanceof Blob
-          ? await data.text()
-          : typeof data === 'string'
-            ? data
-            : JSON.stringify(data)
-      return { text, etag }
+      // The log is served as `text/jsonl`; the text projection reads it as
+      // UTF-8 and re-serializes a body a backend served as JSON instead.
+      const read = await resource(resourceId).getWithEtag({ as: 'text' })
+      return read === null ? undefined : { text: read.data, etag: read.etag }
     },
     getIdResource: async ({ resourceId }) => {
       const data = await resource(resourceId).get()
@@ -155,7 +144,7 @@ export function wasWebvhLogStore({
  *   here
  * @returns {WebvhIdStore}
  */
-export function wasWebvhIdStore({
+export function pwsWebvhIdStore({
   pws,
   spaceId,
   pinStore
@@ -164,21 +153,22 @@ export function wasWebvhIdStore({
   spaceId: string
   pinStore: ResourceLogPinStore
 }): WebvhIdStore {
+  const keyMap = () =>
+    plaintextCollection({
+      pws,
+      spaceId,
+      collectionId: KEY_MAP_COLLECTION.id
+    }).resource(DID_KEYS_RESOURCE)
+
   return {
-    ...wasWebvhLogStore({
+    ...pwsWebvhLogStore({
       pws,
       spaceId,
       collectionId: ID_COLLECTION.id,
       pinStore
     }),
     getKeyMapRaw: async () => {
-      const read = await plaintextCollection({
-        pws,
-        spaceId,
-        collectionId: KEY_MAP_COLLECTION.id
-      })
-        .resource(DID_KEYS_RESOURCE)
-        .getWithEtag()
+      const read = await keyMap().getWithEtag()
       return read === null
         ? undefined
         : {
@@ -194,16 +184,10 @@ export function wasWebvhIdStore({
     // carries the stored resource's new validator, so it is handed back
     // rather than dropped.
     putKeyMap: async ({ content, ifMatch, ifNoneMatch }) =>
-      plaintextCollection({
-        pws,
-        spaceId,
-        collectionId: KEY_MAP_COLLECTION.id
+      keyMap().put(new TextEncoder().encode(JSON.stringify(content)), {
+        contentType: 'application/json',
+        ifMatch,
+        ifNoneMatch
       })
-        .resource(DID_KEYS_RESOURCE)
-        .put(new TextEncoder().encode(JSON.stringify(content)), {
-          contentType: 'application/json',
-          ifMatch,
-          ifNoneMatch
-        })
   }
 }

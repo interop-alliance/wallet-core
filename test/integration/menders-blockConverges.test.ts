@@ -97,7 +97,7 @@ import {
   delegatedWebvhLogStore,
   didKeyZcapClient,
   verifyAccountLog,
-  wasWebvhIdStore
+  pwsWebvhIdStore
 } from '../../src/webvh/index.js'
 import type { WebvhIdStore } from '../../src/webvh/index.js'
 import {
@@ -670,7 +670,7 @@ const MEND: Registration<Deps, CeremonyId> = {
           log
         }),
       bootstrapPwsFor: () => bootstrapPws,
-      idStore: wasWebvhIdStore({
+      idStore: pwsWebvhIdStore({
         pws: bootstrapPws,
         spaceId,
         pinStore: visit.pinStore

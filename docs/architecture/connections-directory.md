@@ -22,7 +22,7 @@ renewal rules), and `0031` (the replica-server members).
 The `connections` directory holds one encrypted entry per party (app, agent,
 wallet client, contact, replica server). Its surface is the entry codec (lenient
 reads, unknown members kept), the resource id keyed by the collection's
-blinded-index key, the store seam and its WAS adapter over the documents feed,
+blinded-index key, the store seam and its PWS adapter over the documents feed,
 the grant index with the reader checks a revocation reads, the compare-and-swap
 upsert helpers and their kind refusal, and the writer arm on a wallet client's
 entry (lazy registration, the throttled touch, the per-entry sweep,
@@ -195,7 +195,7 @@ builder).
 
 `ConnectionsStore` (`connections/store.ts`) is the seam: `list`, `get` with its
 ETag, and a conditional `put`. It has no delete, because an entry is retired and
-never deleted while the account stands. `wasConnectionsStore` builds it over the
+never deleted while the account stands. `pwsConnectionsStore` builds it over the
 collection's Collection handle and its document cipher. A listing walks the
 collection's documents feed, bodies and ETags, one request per page, and opens
 each envelope with the cipher under the id the feed served it at. A `get` and a

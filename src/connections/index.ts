@@ -11,7 +11,7 @@
  *   vocabularies, and the writer policy (`CONNECTION_WRITER_POLICY`).
  * - `connectionResourceId`, the two-arm resource id keyed by the
  *   collection's blinded-index key.
- * - The store seam and its WAS adapter (`wasConnectionsStore`), and the one
+ * - The store seam and its PWS adapter (`pwsConnectionsStore`), and the one
  *   listing read (`readConnections`) every lookup by DID resolves against.
  * - The grant index the revocation orchestrators share
  *   (`connectionGrants`, `grantTargets`, `splitGrantsByExpiry`,
@@ -81,7 +81,7 @@ export {
   verifyConnectionSeedTag
 } from './resourceId.js'
 export type { ConnectionIdKey } from './resourceId.js'
-export { wasConnectionsStore } from './store.js'
+export { pwsConnectionsStore } from './store.js'
 export type { ConnectionsStore, StoredConnection } from './store.js'
 export { findConnection, readConnections } from './read.js'
 export type { ConnectionsListing, ReadConnection } from './read.js'

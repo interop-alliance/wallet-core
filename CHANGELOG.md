@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.113.0 - TBD
+
+### Changed
+
+- **BREAKING**: The three store builders `wasWebvhIdStore`, `wasWebvhLogStore`,
+  and `wasConnectionsStore` are renamed `pwsWebvhIdStore`, `pwsWebvhLogStore`,
+  and `pwsConnectionsStore`, with no alias kept. The rename is code-only; no
+  stored record or wire value carries a builder name.
+- `pwsWebvhLogStore` reads a log body through pws-client's `{ as: 'text' }`
+  projection instead of decoding the Blob itself.
+
 ## 0.112.0 - 2026-10-30
 
 ### Changed

@@ -114,8 +114,8 @@ import {
   STANDING_ZCAP_TTL_MS,
   standingZcapStale
 } from '../webvh/standingZcap.js'
-import { wasWebvhLogStore } from '../webvh/wasIdStore.js'
-import type { WebvhLogResourceStore } from '../webvh/wasIdStore.js'
+import { pwsWebvhLogStore } from '../webvh/pwsIdStore.js'
+import type { WebvhLogResourceStore } from '../webvh/pwsIdStore.js'
 import {
   GENERATION_ID_PREFIX,
   assertGenerationId,
@@ -181,7 +181,7 @@ export function mintGenerationId(): string {
 }
 
 /**
- * The WAS-backed store an annex generation's ceremonies read and publish
+ * The PWS-backed store an annex generation's ceremonies read and publish
  * through with controller-tier signing (an enrolled client). A transient
  * session writes through the delegated store instead
  * (`delegatedWebvhLogStore`, invoking the credential's sibling delegation);
@@ -212,7 +212,7 @@ export function clientAnnexLogStore({
   capability?: IZcap
 }): WebvhLogResourceStore {
   assertGenerationId(generationId)
-  return wasWebvhLogStore({
+  return pwsWebvhLogStore({
     pws,
     spaceId,
     collectionId: generationId,

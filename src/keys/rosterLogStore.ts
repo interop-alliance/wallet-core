@@ -32,7 +32,7 @@
  * controller version before the membership change it should have sealed.
  */
 import {
-  logGovernedDescriptorStore as wasLogGovernedDescriptorStore,
+  logGovernedDescriptorStore as upstreamLogGovernedDescriptorStore,
   EPOCH_CONFIGURATION_STATE_TYPE,
   type EncryptionDescriptorStore
 } from '@interop/pws-client/edv/core'
@@ -188,7 +188,7 @@ export function logGovernedDescriptorStore({
     return resolved
   }
 
-  const store = wasLogGovernedDescriptorStore({
+  const store = upstreamLogGovernedDescriptorStore({
     log,
     resolveController: currentController,
     pinStore,

@@ -96,7 +96,7 @@ import {
   keyAgreementCommitment,
   ladderRung,
   verifyAccountLog,
-  wasWebvhIdStore,
+  pwsWebvhIdStore,
   webvhZcapClient
 } from '../webvh/index.js'
 import { FAST_KDF } from './fastKdf.js'
@@ -222,7 +222,7 @@ export async function establishAccount({
         log
       }),
     bootstrapPwsFor: () => bootstrapPws,
-    idStore: wasWebvhIdStore({ pws: bootstrapPws, spaceId, pinStore })
+    idStore: pwsWebvhIdStore({ pws: bootstrapPws, spaceId, pinStore })
   })
 
   const record = binds.at(-1)

@@ -50,7 +50,7 @@ import type { ClientAnnexGcReport } from '../../src/clientAnnex/index.js'
 import { setLogger } from '../../src/log.js'
 import { ID_COLLECTION } from '../../src/space/index.js'
 import { buildEnrolledClientAccount } from '../../src/testing/index.js'
-import { verifyAccountLog, wasWebvhIdStore } from '../../src/webvh/index.js'
+import { verifyAccountLog, pwsWebvhIdStore } from '../../src/webvh/index.js'
 import {
   bootServer,
   transientVisit
@@ -109,7 +109,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
       baseServerUrl,
       zcapClient: client.zcapClient
     })
-    const idStore = wasWebvhIdStore({ pws, spaceId, pinStore })
+    const idStore = pwsWebvhIdStore({ pws, spaceId, pinStore })
     const logPath = new URL(
       resourceUrl({
         spaceUrl: spaceUrlById({ baseServerUrl, spaceId }),

@@ -14,7 +14,7 @@ account-document readers, the did:keys a log's documents ever named
 (`accountLogDids`, with `walletClientDid` as the did:key a signing-key multibase
 names), log verification in both directions (`verifyAccountLog` against an
 expected DID, `discoverAccountLog` taking the owner from the log a Space
-publishes, both under the location check), the WAS-backed and delegated log
+publishes, both under the location check), the PWS-backed and delegated log
 stores, zcap signing under the webvh keyId, the standing-zcap staleness policy
 (`standingZcap.ts`, which `recovery` re-exports), the update-key ladder
 (`ladderDerivation.ts`, the pure rung and ladder-VM derivation; `ladder.ts`, the
@@ -278,8 +278,8 @@ single source of truth.
   The pin is a property of the store, not a ceremony argument. `WebvhIdStore`
   carries a required `pin: { store, logId }` member. Each constructor takes the
   pin store and derives the slot from the collection it serves
-  (`wasWebvhIdStore` and `delegatedWebvhLogStore` over the account log,
-  `wasWebvhLogStore` and `clientAnnexLogStore` over an annex generation's), so
+  (`pwsWebvhIdStore` and `delegatedWebvhLogStore` over the account log,
+  `pwsWebvhLogStore` and `clientAnnexLogStore` over an annex generation's), so
   no ceremony signature names the pin and no caller pairs a store with the wrong
   slot. Every read through the seam (`readPublishedLog`,
   `readPublishedLogOrThrow`) checks the served log against the pin and advances

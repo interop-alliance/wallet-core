@@ -69,8 +69,8 @@
  * - `discoverAccountLog` -- the same reader with no DID known in advance: a
  *   requester holding a Space id and nothing naming its owner takes the owner
  *   from the log published there, under the location check alone.
- * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
- *   through, over the parameterized `wasWebvhLogStore` (any collection's
+ * - `pwsWebvhIdStore` -- the PWS-backed `WebvhIdStore` the ceremonies write
+ *   through, over the parameterized `pwsWebvhLogStore` (any collection's
  *   `did.jsonl`), which also serves a client-annex generation's log.
  * - `ensureDidWebProjection` / `putDidWebProjection` -- the `did:web`
  *   projection (`id/did.json`) writers, with the ensure's compare exported on
@@ -134,8 +134,8 @@ export {
   verifyAccountLog
 } from './verifyLog.js'
 export type { VerifiedAccountLog } from './verifyLog.js'
-export { wasWebvhIdStore, wasWebvhLogStore } from './wasIdStore.js'
-export type { WebvhLogResourceStore } from './wasIdStore.js'
+export { pwsWebvhIdStore, pwsWebvhLogStore } from './pwsIdStore.js'
+export type { WebvhLogResourceStore } from './pwsIdStore.js'
 export {
   didWebProjectionCurrent,
   ensureDidWebProjection,
