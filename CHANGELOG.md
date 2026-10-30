@@ -1,5 +1,20 @@
 # @interop/wallet-core Changelog
 
+## 0.111.0 - TBD
+
+### Changed
+
+- Breaking: `logGovernedDescriptorSource` and `collectionDescriptorLogPinId`
+  take `spaceUrl` in place of `spaceId`, so a consumer holding only grants onto
+  a single fixed Space (which has no Space id) can build the source. The pin
+  slot is now the collection log's own URL (`{spaceUrl}{collectionId}/meta/log`,
+  was-client's `collectionLogUrl`) rather than
+  `space/<spaceId>/<collectionId>/meta/log`. The URL is canonicalized, so the
+  bare and the trailing-slash form of one Space name one slot, and a value that
+  is not a Space URL is refused with `ValidationError` when the source is built.
+  A durable pin store holds no pin under the new slot, so each collection log is
+  trusted afresh on its first read after the upgrade.
+
 ## 0.110.0 - 2026-10-29
 
 ### Added

@@ -14,7 +14,7 @@
  *
  * The transport seam is was-client's `resourceLogStore({ collection })`, so
  * the handle passed in is the whole address: the store derives its own
- * chain-head pin slot from the handle's Space and collection ids
+ * chain-head pin slot from the handle's Space URL and collection id
  * ({@link collectionDescriptorLogPinId}), and no caller names a `logId`.
  *
  * Over it sit the two lookup builders every consumer of the
@@ -35,7 +35,6 @@ import {
   type Space
 } from '@interop/was-client'
 import { resourceLogStore } from '@interop/was-client/log'
-import { spaceIdOfUrl } from '@interop/was-client/paths'
 import type {
   ResourceLogPinStore,
   ResourceLogSigner
@@ -76,7 +75,7 @@ import {
  *
  * @param options {object}
  * @param options.collection {Collection}   the collection handle whose
- *   `meta/log` is the log; its `spaceId` and `id` are what the pin slot is
+ *   `meta/log` is the log; its `spaceUrl` and `id` are what the pin slot is
  *   derived from, and its capability wiring is what every request rides
  * @param options.resolveController {function}
  *   `() => Promise<WebvhResourceLogController>` -- the caller's currently
@@ -107,7 +106,7 @@ export function collectionDescriptorLogStore({
     resolveController,
     pinStore,
     logId: collectionDescriptorLogPinId({
-      spaceId: spaceIdOfUrl(collection.spaceUrl),
+      spaceUrl: collection.spaceUrl,
       collectionId: collection.id
     }),
     signer,

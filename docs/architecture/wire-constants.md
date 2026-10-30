@@ -73,9 +73,8 @@ stored artifacts:
     base64url with no padding (`replicaServerServiceFragment`). Written by the
     entry that installs the generation delegation, and genesis carries none. A
     reader counts only a string endpoint and matches a server by the endpoint
-    alone (the fragment is a selector and names no server), and a writer
-    refuses a server DID that is not a did:webvh with the path
-    `space:server:id`.
+    alone (the fragment is a selector and names no server), and a writer refuses
+    a server DID that is not a did:webvh with the path `space:server:id`.
   - Why permanent: the source server gates a ladder-signed replica pull on it,
     and the derived fragment is what keeps one server's entry the same id across
     every restate.
@@ -136,8 +135,9 @@ stored artifacts:
 - **`COLLECTION_HISTORY_LOG_SUBRESOURCE`** -- `meta/log`, the Collection
   sub-resource every encrypted collection's governing history log is served at.
   Why permanent: every governed collection's log is addressed there, and every
-  reader derives its chain-head pin slot
-  (`space/<spaceId>/<collectionId>/meta/log`) from it.
+  reader derives its chain-head pin slot, the log's own URL
+  (`{spaceUrl}{collectionId}/meta/log`, `collectionDescriptorLogPinId`), from
+  it.
 - **`CLIENT_ANNEX_PROFILE_IDENTIFIER`**
   - Value: `https://w3id.org/pws/client-annex`, the `specs` key of the client
     annex profile's service description entry; the entry carries `version`

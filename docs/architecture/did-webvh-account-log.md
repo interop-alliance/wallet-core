@@ -305,14 +305,16 @@ single source of truth.
   `resourceLogPinId({ spaceId, collectionId, resourceId })` in
   `@interop/vh-resource-log` is the generic builder,
   `accountLogPinId({ spaceId })` in `webvh` names the account log's slot, and
-  `collectionDescriptorLogPinId({ spaceId, collectionId })` in `descriptors`
-  names a collection descriptor log's slot over the library's
-  `collectionLogPinId`, resolving to `space/<spaceId>/<collectionId>/meta/log`,
-  the log's own home inside the collection it governs. The shape is host-free by
-  design: the Space id stays stable across a claimed host move, so a log served
-  from a new host lands in the SAME slot and is checked against the held pin,
-  rather than opening a fresh trust-on-first-use slate. `verifyAccountLog`
-  derives its `logId` from the Space id the DID encodes.
+  `collectionDescriptorLogPinId({ spaceUrl, collectionId })` in `descriptors`
+  names a collection descriptor log's slot by the log's own URL,
+  `{spaceUrl}{collectionId}/meta/log`, inside the collection it governs. The
+  account and roster slots are host-free by design: the Space id stays stable
+  across a claimed host move, so a log served from a new host lands in the SAME
+  slot and is checked against the held pin, rather than opening a fresh
+  trust-on-first-use slate. The collection descriptor slot is URL-keyed instead,
+  because the reader may hold only grants onto a single fixed Space, which has
+  no id; a host move opens a fresh slot for it. `verifyAccountLog` derives its
+  `logId` from the Space id the DID encodes.
 
   The world-readable fetch runs in two directions over one body.
   `verifyAccountLog` takes the DID alone, as the caller's account pointer names

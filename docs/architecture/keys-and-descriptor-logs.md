@@ -415,26 +415,29 @@ boundary exists once, in `@interop/was-client/edv`
 the roster's log-governed descriptor store and was-client's own
 pointer-following collection store read through the same helper, so a hardening
 reaches every trusted descriptor read. The source takes one keyed `pinStore`
-shared across every collection it serves, plus the Space id. Each collection's
-slot is `collectionDescriptorLogPinId({ spaceId, collectionId })`, resolving to
-`space/<spaceId>/<collectionId>/meta/log` -- host-free like the account and
-roster log slots, and following the log's own home, the `meta/log` sub-resource
-of the collection it governs. A sub-resource under the reserved `meta` segment
-is outside the collection's Resources, so it is neither sealed by the
-collection's own encryption nor replicated with it. Every read here runs under
-the `collection-descriptor` log class (`controllerForLogClass`), so a
-ladder-signed append verifies on `assertionMethod` membership alone and a reader
-does not inherit the roster's ceremony-tail license. A governed collection plugs
-this source into the refresh-guard policy and the cipher, both untouched, and
-passes `requireGoverned: true` to was-client's acquisition for every `edv`
-collection it expects to be governed. Under that option a descriptor is adopted
-only through a source that declares `verifiesHistory`, which this one does, and
-a plain source is refused with `UnverifiedDescriptorError` before any fetch. The
-verified head the source returns carries no `history` member (the log rule keeps
-it projection-only); the flag, not the member, is what admits it. Without the
-option a host could strip `history` from the served projection and serve an
-epoch it minted, which a plain reader cannot tell from an honest point-state
-descriptor.
+shared across every collection it serves, plus the Space URL as received (a
+grant's chain root, a stored pointer). Each collection's slot is
+`collectionDescriptorLogPinId({ spaceUrl, collectionId })`, resolving to the
+log's own URL, `{spaceUrl}{collectionId}/meta/log` (was-client's
+`collectionLogUrl`), the `meta/log` sub-resource of the collection it governs.
+The slot is keyed on the URL rather than on a Space id, unlike the account and
+roster log slots, because a consumer holding only grants may be reading a single
+fixed Space, which has no id to read off its URL. A sub-resource under the
+reserved `meta` segment is outside the collection's Resources, so it is neither
+sealed by the collection's own encryption nor replicated with it. Every read
+here runs under the `collection-descriptor` log class (`controllerForLogClass`),
+so a ladder-signed append verifies on `assertionMethod` membership alone and a
+reader does not inherit the roster's ceremony-tail license. A governed
+collection plugs this source into the refresh-guard policy and the cipher, both
+untouched, and passes `requireGoverned: true` to was-client's acquisition for
+every `edv` collection it expects to be governed. Under that option a descriptor
+is adopted only through a source that declares `verifiesHistory`, which this one
+does, and a plain source is refused with `UnverifiedDescriptorError` before any
+fetch. The verified head the source returns carries no `history` member (the log
+rule keeps it projection-only); the flag, not the member, is what admits it.
+Without the option a host could strip `history` from the served projection and
+serve an epoch it minted, which a plain reader cannot tell from an honest
+point-state descriptor.
 
 A decrypt that finds no key fails in two distinguishable ways, and a host
 scanning rows must tell them apart: `UnknownEpochError` (the envelope's epoch is

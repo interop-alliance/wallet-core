@@ -31,10 +31,10 @@ import {
   readGovernedEpochConfiguration
 } from '@interop/was-client/edv/core'
 import type { EncryptionDescriptorSource } from '@interop/was-client/edv'
-import {
-  collectionLogPinId,
-  type ResourceLogPinStore,
-  type ResourceLogStore
+import { canonicalSpaceUrl, collectionLogUrl } from '@interop/was-client/paths'
+import type {
+  ResourceLogPinStore,
+  ResourceLogStore
 } from '@interop/vh-resource-log'
 import {
   controllerForLogClass,
@@ -51,32 +51,41 @@ export { EPOCH_CONFIGURATION_STATE_TYPE, readGovernedEpochConfiguration }
 
 /**
  * The pin-slot key for a collection's governing descriptor log: the slot a
- * keyed `ResourceLogPinStore` holds that log's chain-head pin under,
- * `space/<spaceId>/<collectionId>/meta/log`. The library names it, as it
- * names the account log's (`accountLogPinId`) and the roster's
- * (`userKeyRosterPinId`) slots, so no app builds one of its own.
+ * keyed `ResourceLogPinStore` holds that log's chain-head pin under. The slot
+ * is the log's own URL, `{spaceUrl}{collectionId}/meta/log` (was-client's
+ * `collectionLogUrl`). The library names it, as it names the account log's
+ * (`accountLogPinId`) and the roster's (`userKeyRosterPinId`) slots, so no
+ * app builds one of its own.
  *
  * The slot follows the log's placement: the log is the collection's own
  * `meta/log` sub-resource, inside the URL subtree of the collection it
  * governs, so the read capability a share grantee or a connected app already
- * holds covers it. The shape is host-free on purpose -- the Space id is what
- * stays stable across a claimed host move, so a log served from a new host
- * still lands in the same slot and is checked against the held pin rather
- * than opening a fresh trust-on-first-use slate.
+ * holds covers it. It is keyed on the URL rather than on a Space id because
+ * the reader receives a Space URL and does not parse an id off it, and a
+ * fixed Space may carry no id. The account and roster slots stay id-keyed,
+ * since their readers hold the DID, which encodes the Space id. The one
+ * consequence of the split is that a collection log served from a new host
+ * lands in a new slot and is trusted afresh there, where the account log on
+ * the same client is still checked against its held pin.
+ *
+ * The URL is canonicalized by the helper, so every serialization of one
+ * Space names the same slot.
  *
  * @param options {object}
- * @param options.spaceId {string}   the data Space id
+ * @param options.spaceUrl {string}   the data Space's URL
  * @param options.collectionId {string}   the governed collection
  * @returns {string}
+ * @throws {ValidationError}   when `spaceUrl` is not a Space URL, or the
+ *   collection id is a reserved segment at an origin root
  */
 export function collectionDescriptorLogPinId({
-  spaceId,
+  spaceUrl,
   collectionId
 }: {
-  spaceId: string
+  spaceUrl: string
   collectionId: string
 }): string {
-  return collectionLogPinId({ spaceId, collectionId })
+  return collectionLogUrl({ spaceUrl, collectionId })
 }
 
 /**
@@ -114,21 +123,32 @@ export function collectionDescriptorLogPinId({
  *   this log class
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins, keyed per log; each collection's slot is
- *   {@link collectionDescriptorLogPinId} over `spaceId`
- * @param options.spaceId {string}   the data Space the collections belong to
+ *   {@link collectionDescriptorLogPinId} over `spaceUrl`
+ * @param options.spaceUrl {string}   the URL of the data Space the
+ *   collections belong to, as received (a grant's chain root, a stored
+ *   pointer); no id is read off it
  * @returns {EncryptionDescriptorSource}
+ * @throws {ValidationError}   when `spaceUrl` is not a Space URL (not an
+ *   absolute `http(s)` URL, or carrying a query, a fragment, or an empty
+ *   path segment); refused here, at build time, since a refusal raised
+ *   inside a read would be taken for a transport failure by was-client's
+ *   `acquireDescriptor` and answered from the cache
  */
 export function logGovernedDescriptorSource({
   logFor,
   resolveController,
   pinStore,
-  spaceId
+  spaceUrl
 }: {
   logFor: (collectionId: string) => ResourceLogStore
   resolveController: () => Promise<WebvhResourceLogController>
   pinStore: ResourceLogPinStore
-  spaceId: string
+  spaceUrl: string
 }): EncryptionDescriptorSource {
+  // Validation only: refuse a malformed Space URL here, at build time, rather
+  // than inside a read. The slot builder canonicalizes on its own, so the two
+  // call sites agree without this call.
+  canonicalSpaceUrl(spaceUrl)
   return {
     // Every read below resolves the governing log's verified head, which is
     // the governed descriptor by construction. The head carries no `history`
@@ -144,7 +164,7 @@ export function logGovernedDescriptorSource({
             logClass: 'collection-descriptor'
           }),
         pinStore,
-        logId: collectionDescriptorLogPinId({ spaceId, collectionId })
+        logId: collectionDescriptorLogPinId({ spaceUrl, collectionId })
       })
       if (current === null) {
         return undefined

@@ -9,7 +9,11 @@
  * `@interop/was-client` beside the moved code.
  */
 import { describe, expect, it } from 'vitest'
-import type { CollectionEncryption } from '@interop/was-client'
+import {
+  ValidationError,
+  WasClient,
+  type CollectionEncryption
+} from '@interop/was-client'
 import {
   acquireDescriptor,
   createRefreshingEdvDocCipher,
@@ -18,6 +22,7 @@ import {
   type EncryptionDescriptorCache
 } from '@interop/was-client/edv'
 import { singleKeyResolver } from '@interop/was-client/identity'
+import type { ZcapClient } from '@interop/ezcap'
 import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   collectionDescriptorLogPinId,
@@ -30,7 +35,6 @@ import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import {
   appendResourceLog,
   createResourceLog,
-  collectionLogPinId,
   memoryResourceLogPinStore
 } from '@interop/vh-resource-log'
 import { makeRosterClient } from './fixtures/rosterClient.js'
@@ -78,23 +82,109 @@ const sampleDescriptor = (): CollectionEncryption => ({
 })
 
 describe('collectionDescriptorLogPinId', () => {
-  it("names a host-free slot under the collection's own subtree", () => {
+  it("names the slot by the log's own URL under the collection's subtree", () => {
     // The log lives at the collection's `meta/log` sub-resource, so the read
     // capability a share grantee or a connected app already holds covers it.
     expect(
-      collectionDescriptorLogPinId({ spaceId: 'sp', collectionId: 'app-notes' })
-    ).toBe(collectionLogPinId({ spaceId: 'sp', collectionId: 'app-notes' }))
+      collectionDescriptorLogPinId({
+        spaceUrl: 'https://h.example/space/sp/',
+        collectionId: 'app-notes'
+      })
+    ).toBe('https://h.example/space/sp/app-notes/meta/log')
+  })
+
+  it('names a slot for a single fixed Space, which has no id to read', () => {
+    // An origin-root Space and a sub-path fixed Space carry no Space id, so
+    // an id-keyed slot would refuse the first and misread the second. The
+    // URL-keyed slot exists for both.
     expect(
-      collectionDescriptorLogPinId({ spaceId: 'sp', collectionId: 'app-notes' })
-    ).toBe('space/sp/app-notes/meta/log')
+      collectionDescriptorLogPinId({
+        spaceUrl: 'https://alice.example/',
+        collectionId: 'app-notes'
+      })
+    ).toBe('https://alice.example/app-notes/meta/log')
+    expect(
+      collectionDescriptorLogPinId({
+        spaceUrl: 'https://alice.example/pws/',
+        collectionId: 'app-notes'
+      })
+    ).toBe('https://alice.example/pws/app-notes/meta/log')
+  })
+
+  it('names one slot for every serialization of one Space URL', () => {
+    // A grant's chain root and a stored pointer can serialize the same Space
+    // differently; a split slot would pin one log twice and check neither
+    // read against the other's history.
+    const canonical = collectionDescriptorLogPinId({
+      spaceUrl: 'https://h.example/space/sp/',
+      collectionId: 'app-notes'
+    })
+    for (const spaceUrl of [
+      'https://h.example/space/sp',
+      'https://h.example:443/space/sp/',
+      'https://H.EXAMPLE/space/sp/'
+    ]) {
+      expect(
+        collectionDescriptorLogPinId({ spaceUrl, collectionId: 'app-notes' })
+      ).toBe(canonical)
+    }
+  })
+
+  it("is the handle's own historyLogUrl", () => {
+    // The store and the source both derive the slot through this builder;
+    // was-client's handle computes the same URL, and the two must agree.
+    // The handle is never invoked, so no client stands behind it.
+    const collection = new WasClient({
+      baseServerUrl: 'https://h.example/',
+      zcapClient: {} as ZcapClient
+    })
+      .space('sp')
+      .collection('app-notes')
+    expect(
+      collectionDescriptorLogPinId({
+        spaceUrl: collection.spaceUrl,
+        collectionId: collection.id
+      })
+    ).toBe(collection.historyLogUrl)
+  })
+
+  it('refuses a value that is not a Space URL', () => {
+    for (const spaceUrl of [
+      'https://h.example/space/sp?x=1',
+      'https://h.example/space/sp/#frag',
+      'https://h.example/space//sp/',
+      'space/sp/'
+    ]) {
+      expect(() =>
+        collectionDescriptorLogPinId({ spaceUrl, collectionId: 'app-notes' })
+      ).toThrow(ValidationError)
+    }
   })
 })
 
 describe('logGovernedDescriptorSource', () => {
+  it('refuses a malformed Space URL when built, not inside a read', () => {
+    // A refusal raised inside `collectionEncryption` would reach was-client's
+    // `acquireDescriptor` as a transport failure and be answered from the
+    // cache, or as "plaintext" on a cold one.
+    expect(() =>
+      logGovernedDescriptorSource({
+        logFor: () => {
+          throw new Error('unreachable')
+        },
+        resolveController: async () => {
+          throw new Error('unreachable')
+        },
+        pinStore: memoryResourceLogPinStore(),
+        spaceUrl: 'https://h.example/space/sp?x=1'
+      })
+    ).toThrow(ValidationError)
+  })
+
   const GOVERNED_ID = 'app-notes'
-  const SPACE_ID = 'space-under-test'
+  const SPACE_URL = 'http://localhost:8080/space/space-under-test/'
   const GOVERNED_LOG_ID = collectionDescriptorLogPinId({
-    spaceId: SPACE_ID,
+    spaceUrl: SPACE_URL,
     collectionId: GOVERNED_ID
   })
 
@@ -126,7 +216,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore,
-      spaceId: SPACE_ID
+      spaceUrl: SPACE_URL
     })
     return { alice, controller, log, pinStore, descriptor, source }
   }
@@ -188,7 +278,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore: memoryResourceLogPinStore(),
-      spaceId: SPACE_ID
+      spaceUrl: SPACE_URL
     })
     const head = await source.collectionEncryption({
       collectionId: GOVERNED_ID
@@ -247,7 +337,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore,
-      spaceId: SPACE_ID
+      spaceUrl: SPACE_URL
     })
     await expect(
       source.collectionEncryption({ collectionId: GOVERNED_ID })
@@ -267,7 +357,7 @@ describe('logGovernedDescriptorSource', () => {
           versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
         }),
       pinStore: memoryResourceLogPinStore(),
-      spaceId: SPACE_ID
+      spaceUrl: SPACE_URL
     })
     expect(
       await source.collectionEncryption({ collectionId: GOVERNED_ID })
@@ -340,7 +430,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore: memoryResourceLogPinStore(),
-      spaceId: SPACE_ID
+      spaceUrl: SPACE_URL
     })
     // Through acquireDescriptor, the refusal rethrows past a warm cache.
     const cache = memoryCache()
@@ -404,7 +494,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => unchangedEdit,
       pinStore: memoryResourceLogPinStore(),
-      spaceId: SPACE_ID
+      spaceUrl: SPACE_URL
     })
     expect(
       await source.collectionEncryption({ collectionId: GOVERNED_ID })
@@ -428,7 +518,7 @@ describe('logGovernedDescriptorSource', () => {
 
 describe('logGovernedDescriptorStore (the create path under the edv machinery)', () => {
   const GOVERNED_LOG_ID = collectionDescriptorLogPinId({
-    spaceId: 'space-under-test',
+    spaceUrl: 'http://localhost:8080/space/space-under-test/',
     collectionId: 'app-notes'
   })
 

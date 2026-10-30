@@ -144,10 +144,10 @@ describe('collectionDescriptorLogStore', () => {
     // The pin landed under the library-named slot for this collection's own
     // `meta/log`, which no caller passed in.
     const slot = collectionDescriptorLogPinId({
-      spaceId: SPACE_ID,
+      spaceUrl: SPACE_URL,
       collectionId: COLLECTION_ID
     })
-    expect(slot).toBe(`space/${SPACE_ID}/${COLLECTION_ID}/meta/log`)
+    expect(slot).toBe(`${SPACE_URL}${COLLECTION_ID}/meta/log`)
     expect(host.entries()).toHaveLength(1)
     // The verified read advances the chain-head pin under that slot.
     await store.read()
