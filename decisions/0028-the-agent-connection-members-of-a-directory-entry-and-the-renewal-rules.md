@@ -201,3 +201,8 @@ in-place reinterpretation of a stored member.
   `replica-server` entry, and a replica server's pull grant renews under the
   append and proof rules, with no silent renewal of a withdrawn signer's grant
   (0031).
+- 2026-10-31: Revisit criterion 3 fired. 0032 adds the rotation: `seed` and
+  `seedTag` may sit on an `app` entry, two pending members `nextSeed` and
+  `nextSeedTag` carry the successor, and a `Rotate` envelope joins `Grant`.
+  The write-once rule on `seed` now reads "written once, replaced only by the
+  promote in 0032". No other rule here changes.
