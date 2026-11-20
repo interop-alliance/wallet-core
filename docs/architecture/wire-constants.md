@@ -59,7 +59,7 @@ stored artifacts:
     generation; the server's inspector clause reads it.
 - **The generation delegation**
   - Value: `invocationTarget` = the account Space's canonical container URL
-    (trailing slash), `allowedAction` `['GET','HEAD','POST','PUT','DELETE']`,
+    (trailing slash), `allowedAction` `['GET','POST','PUT','DELETE']`,
     `controller` = the bare annex DID string, `expires` 365 days, rooted in the
     account Space's root zcap; embedded in the annex document as `type`
     `https://w3id.org/byoe#GenerationDelegation`, `serviceEndpoint` = the
@@ -319,7 +319,7 @@ stored artifacts:
   entry's `seed` under the pinned bootstrap names, with no derivation label of
   its own, after the seed tag verifies (`connectionDidKey`). Why permanent:
   every client must present the same did:key to the agent.
-- **The audience grant** -- `allowedAction` `['GET','HEAD']` on the audience
+- **The audience grant** -- `allowedAction` `['GET']` on the audience
   collection's container URL, no key epoch escrowed (`delegateAudienceGrant`);
   the target is the bare container URL until the subtree marker ships (see the
   known gap below). Why permanent: a storage server admits a member's read by

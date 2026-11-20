@@ -43,9 +43,8 @@ import { DELETION_ZCAP_TTL_MS } from './spaceCapability.js'
 
 /**
  * The pull delegation's action set: the read-only GET form of the `changes`
- * query is all a replica server's pull loop invokes. Permanent wire shape;
- * the source server's predicate admits a set within {GET, HEAD}, and the
- * wallet mints the narrower one.
+ * query is all a replica server's pull loop invokes. Permanent wire shape.
+ * The source server's predicate admits no other action.
  */
 export const REPLICA_PULL_ACTIONS = ['GET'] as const
 

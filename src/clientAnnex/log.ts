@@ -1173,7 +1173,9 @@ const GENERATION_DELEGATION_SERVICE_FRAGMENT = 'generation-delegation'
 
 /**
  * The generation delegation's `allowedAction` set: the full closed WAS
- * action vocabulary. Wire-level and permanent (the app-connect-spec
+ * action vocabulary, `GET`, `POST`, `PUT` and `DELETE`. A HEAD request is
+ * authorized as a `GET`, so `HEAD` is not an action and is not listed here.
+ * Wire-level and permanent (the app-connect-spec
  * generation-delegation record): attenuation is structural, not enumerated
  * -- child-within-parent is enforced on both actions and targets, so any
  * verb missing here would cap every transient-visit App Connect grant below
@@ -1211,13 +1213,7 @@ const GENERATION_DELEGATION_SERVICE_FRAGMENT = 'generation-delegation'
  * signs its DELETE-only children with the ladder VM), so the rule costs no
  * admitted shape.
  */
-export const GENERATION_DELEGATION_ACTIONS = [
-  'GET',
-  'HEAD',
-  'POST',
-  'PUT',
-  'DELETE'
-]
+export const GENERATION_DELEGATION_ACTIONS = ['GET', 'POST', 'PUT', 'DELETE']
 
 /**
  * The generation delegation's lifetime: the house standing-zcap value (one

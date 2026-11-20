@@ -67,7 +67,7 @@ async function grantSignedAs({
     capability: ROOT_ID,
     invocationTarget: `${SPACE_URL}audience/`,
     controller: AGENT,
-    allowedActions: ['GET', 'HEAD'],
+    allowedActions: ['GET'],
     expires: new Date(NOW + AGENT_GRANT_RENEWAL_WINDOW_MS + 86_400_000)
   })) as unknown as ConnectionZcap
 }
@@ -110,7 +110,7 @@ describe('every delegation-signer reader agrees over one document', async () => 
     capability: ROOT_ID,
     invocationTarget: `${SPACE_URL}audience/`,
     controller: AGENT,
-    allowedActions: ['GET', 'HEAD'],
+    allowedActions: ['GET'],
     expires: new Date(NOW + AGENT_GRANT_RENEWAL_WINDOW_MS + 86_400_000)
   })) as unknown as ConnectionZcap
 

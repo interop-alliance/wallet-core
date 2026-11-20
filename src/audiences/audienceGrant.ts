@@ -24,8 +24,8 @@ export const AUDIENCE_PROVISION_ATTRIBUTES = {
 /**
  * Delegates an audience member's read grant over the audience collection.
  * The shape is the read-only share grant a wallet mints for a collection
- * reader: GET and HEAD on the collection's container. No key epoch is
- * escrowed, since the audience is plaintext.
+ * reader: GET on the collection's container, which also admits HEAD. No key
+ * epoch is escrowed, since the audience is plaintext.
  *
  * The authorization profile is adding an explicit subtree marker (`*`
  * appended to the target), and this mint site will write it once the
@@ -66,7 +66,7 @@ export async function delegateAudienceGrant({
     // Subtree marker: pending the profile change; flip this target to `${collectionUrl}*` when it ships.
     invocationTarget: collectionUrl,
     controller,
-    allowedActions: ['GET', 'HEAD'],
+    allowedActions: ['GET'],
     expires
   })) as IDelegatedZcap
 }

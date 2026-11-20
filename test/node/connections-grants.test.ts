@@ -541,7 +541,7 @@ describe('renewalScopeGrants', () => {
     const grants = [
       grantOf({
         id: 'read',
-        allowedAction: ['HEAD', 'GET']
+        allowedAction: ['GET']
       }),
       grantOf({
         id: 'inbox',
@@ -551,13 +551,13 @@ describe('renewalScopeGrants', () => {
       grantOf({ id: 'write', allowedAction: ['PUT'] }),
       grantOf({
         id: 'read-elsewhen',
-        allowedAction: ['GET', 'HEAD'],
+        allowedAction: ['GET'],
         grantedAt: OTHER_STAMP
       }),
       grantOf({
         id: 'read-resource',
         target: `${SPACE_URL}private-credentials/one`,
-        allowedAction: ['GET', 'HEAD']
+        allowedAction: ['GET']
       })
     ]
     expect(
@@ -567,10 +567,26 @@ describe('renewalScopeGrants', () => {
     ).toEqual(['read', 'inbox'])
   })
 
+  it('leaves a stored read grant that lists HEAD out of scope', () => {
+    const grants = [
+      grantOf({ id: 'read-head', allowedAction: ['GET', 'HEAD'] }),
+      grantOf({
+        id: 'inbox',
+        target: `${SPACE_URL}inbox/`,
+        allowedAction: ['POST']
+      })
+    ]
+    expect(
+      renewalScopeGrants({ grants, spaceUrl: SPACE_URL }).map(
+        grant => grant.zcapId
+      )
+    ).toEqual(['inbox'])
+  })
+
   it('finds no scope without an inbox grant', () => {
     expect(
       renewalScopeGrants({
-        grants: [grantOf({ id: 'read', allowedAction: ['GET', 'HEAD'] })],
+        grants: [grantOf({ id: 'read', allowedAction: ['GET'] })],
         spaceUrl: SPACE_URL
       })
     ).toEqual([])

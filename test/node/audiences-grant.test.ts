@@ -28,7 +28,7 @@ const COLLECTION_URL = 'https://example.com/space/abc/friends/'
 const MEMBER = 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK'
 
 describe('audience grant', () => {
-  it('delegates GET and HEAD on the container URL verbatim', async () => {
+  it('delegates GET on the container URL verbatim', async () => {
     const { zcapClient, calls } = fakeZcapClient()
     const parentCapability = { id: 'urn:zcap:parent' } as never
     const expires = new Date('2027-01-01T00:00:00Z')
@@ -45,7 +45,7 @@ describe('audience grant', () => {
       capability: parentCapability,
       invocationTarget: COLLECTION_URL,
       controller: MEMBER,
-      allowedActions: ['GET', 'HEAD'],
+      allowedActions: ['GET'],
       expires
     })
     expect(calls[0]?.capability).toBe(parentCapability)

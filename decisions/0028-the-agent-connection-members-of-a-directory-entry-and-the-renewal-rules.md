@@ -102,7 +102,7 @@ The renewal rules:
   and `allowedAction`, greatest `expires`. A record with a later same-scope
   successor is superseded and never a candidate.
 - The renewal scope is the grants a connection request's consent produced: GET
-  and HEAD on an audience collection, and POST on this Space's `inbox`. A grant
+  on an audience collection, and POST on this Space's `inbox`. A grant
   is in scope when its `grantedAt` equals that of an `inbox` grant record on the
   same entry and its actions are one of those two. A write grant, and any grant
   from a later request that was not a connection request, is never silently
@@ -206,3 +206,8 @@ in-place reinterpretation of a stored member.
   `nextSeedTag` carry the successor, and a `Rotate` envelope joins `Grant`.
   The write-once rule on `seed` now reads "written once, replaced only by the
   promote in 0032". No other rule here changes.
+- 2026-11-12: The read grant in the renewal scope is exactly `GET`. The PWS
+  action vocabulary dropped `HEAD`, since a HEAD request is authorized as a
+  `GET`. A stored grant that lists `HEAD` keys a scope of its own, so it is
+  neither renewed nor superseded by a `GET` grant, and it runs to its
+  `expires`. No other rule here changes.

@@ -1,5 +1,27 @@
 # @interop/wallet-core Changelog
 
+## 0.114.0 - TBD
+
+### Changed
+
+- **BREAKING**: The capability action vocabulary is `GET`, `POST`, `PUT`, and
+  `DELETE`. A HEAD request is authorized as a `GET`, so no minted capability
+  lists `HEAD`. `GENERATION_DELEGATION_ACTIONS` is now
+  `['GET','POST','PUT','DELETE']`. The storage server's client-annex clause
+  refuses a ladder-signed generation delegation that lists `HEAD`, so one minted
+  by an earlier version stops working. Nothing replaces it before its renewal
+  window opens. A delegation signed by an enrolled client is not governed by
+  that clause and keeps working.
+- **BREAKING**: `delegateAudienceGrant` mints `['GET']` in place of
+  `['GET','HEAD']`. `renewalScopeGrants` keeps a read grant only when its
+  actions are exactly `GET`, so a stored `['GET','HEAD']` grant leaves the
+  silent renewal scope. A new `['GET']` grant does not supersede it either,
+  since the scope key includes the action set.
+- **BREAKING**: The `@interop/pws-client` peer range starts at 0.108.0, the
+  first version that signs a HEAD request as the `GET` action. A HEAD under a
+  `['GET']` grant is refused on an earlier client.
+- The test signer fixture's zcap carries `['GET']`.
+
 ## 0.113.0 - 2026-10-30
 
 ### Changed

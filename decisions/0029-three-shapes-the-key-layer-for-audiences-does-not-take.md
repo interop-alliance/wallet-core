@@ -72,8 +72,8 @@ pull shape fails in practice.
 - A per-log controller document listing the owner and the agent, which
   would let the agent append to one audience's log without
   `assertionMethod`, is deferred, not rejected.
-- The cleartext layer's agent, which holds GET and HEAD grants and no
-  signing authority, already conforms to the third rule.
+- The cleartext layer's agent, which holds GET grants and no signing
+  authority, already conforms to the third rule.
 
 ## Revisit Criteria
 
@@ -89,3 +89,8 @@ Reopen this decision when one or more of the following holds:
 
 The second shape has no revisit criterion; mutable posts make a
 per-envelope member set a rewrite per membership change at any scale.
+
+## Changelog
+
+- 2026-11-12: No change to the decision. The agent's read grants are now
+  `GET` only, since the PWS action vocabulary dropped `HEAD`.

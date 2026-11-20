@@ -98,7 +98,7 @@ root barrel:                 src/index.ts re-exports sync + space, plus
 - **`audiences`** (deps: space (types)) -- The audience collection, a plaintext
   collection whose posts are its Resources: its provisioning attributes
   (`AUDIENCE_PROVISION_ATTRIBUTES`) and the member grant
-  (`delegateAudienceGrant`, GET and HEAD on the container, no escrow).
+  (`delegateAudienceGrant`, GET on the container, no escrow).
 - **`resourceLog`** (deps: --) -- The wallet-domain residue of the Resource Log
   Profile client side: the account-document reader leaf, the ceremony-tail
   license, and the did:webvh controller adapter..
@@ -897,9 +897,8 @@ not use.
   continuity across the owner's clients. It does not give the owner
   unlinkability. Avoid: connection key, pairwise client, agent key.
 - **Audience** -- a plaintext collection in the owner's Space whose posts are
-  its Resources. Membership is a GET and HEAD capability on its container.
-  Nothing marks a collection as an audience on the wire. Avoid: group, circle,
-  channel.
+  its Resources. Membership is a GET capability on its container. Nothing marks
+  a collection as an audience on the wire. Avoid: group, circle, channel.
 - **Inbox** -- the plaintext `inbox` collection a connected agent POSTs into,
   read and drained by the owner's clients. One mailbox serves the whole wallet,
   rather than one per connection. Avoid: mailbox collection, per-connection

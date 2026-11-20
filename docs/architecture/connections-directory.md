@@ -462,7 +462,7 @@ rules keep the entry bounded and keep every live zcap revocable.
   (`latestGrantsPerScope`). A superseded record is not a candidate.
 - The renewal scope is what a connection request's consent produced
   (`renewalScopeGrants`). A grant is in it when its `grantedAt` equals that of
-  an inbox grant on the same entry, and its actions are GET and HEAD on a
+  an inbox grant on the same entry, and its actions are exactly GET on a
   collection or POST on `inbox`. A write grant, or a grant from a later request
   that was not a connection request, is not renewed silently.
 - `agentGrantDue` reads a grant as due inside the agent renewal window
