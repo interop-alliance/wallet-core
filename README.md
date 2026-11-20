@@ -148,8 +148,8 @@ The subpaths:
   collection in the owner's Space whose posts are its Resources. It carries the
   provisioning attributes every audience shares
   (`AUDIENCE_PROVISION_ATTRIBUTES`) and the member grant
-  (`delegateAudienceGrant`, GET and HEAD on the container, with no key epoch to
-  escrow). Nothing marks an audience on the wire.
+  (`delegateAudienceGrant`, GET on the container, with no key epoch to escrow).
+  Nothing marks an audience on the wire.
 
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
   (connect code, approval, completion) plus the onboarding-response envelope

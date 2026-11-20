@@ -75,7 +75,7 @@ async function grant(
     capability,
     invocationTarget: `${SPACE_URL}/audience/`,
     controller: AGENT,
-    allowedActions: ['GET', 'HEAD']
+    allowedActions: ['GET']
   })) as unknown as ConnectionZcap
 }
 
@@ -128,7 +128,7 @@ async function annexArmGrant(annexDid = ANNEX_DID, visitSeed = 6) {
     capability: ROOT_ID,
     invocationTarget: `${SPACE_URL}/`,
     controller: annexDid,
-    allowedActions: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
+    allowedActions: ['GET', 'POST', 'PUT', 'DELETE']
   })) as IZcap
   const { keyAgent } = await agentsFromSeed({ seed: fixedSeed(visitSeed) })
   const visit = webvhZcapClient({ keyAgent, did: annexDid })
@@ -200,7 +200,7 @@ describe('verifyRecordedGrantProof, the root arm', () => {
 
   it('refuses a capability edited after signing', async () => {
     const { zcap, doc } = await rootArmGrant()
-    const widened = { ...zcap, allowedAction: ['GET', 'HEAD', 'POST'] }
+    const widened = { ...zcap, allowedAction: ['GET', 'POST'] }
     expect(await verify({ zcap: widened, doc })).toEqual({
       verified: false,
       reason: 'signature-invalid'
@@ -440,7 +440,7 @@ describe('verifyRecordedGrantProof, the annex arm', () => {
         annexDocument
       })
     ).toEqual({ verified: false, reason: 'leaf-signature-invalid' })
-    const widened = { ...zcap, allowedAction: ['GET', 'HEAD', 'POST'] }
+    const widened = { ...zcap, allowedAction: ['GET', 'POST'] }
     expect(
       await verify({
         zcap: widened,

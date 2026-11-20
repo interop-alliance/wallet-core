@@ -114,7 +114,7 @@ export function recordedGrant({
     parentCapability: embedded ? embedded.id : root,
     controller,
     invocationTarget,
-    allowedAction: ['GET', 'HEAD'],
+    allowedAction: ['GET'],
     expires,
     proof: {
       capabilityChain: embedded ? [root, embedded] : [root],

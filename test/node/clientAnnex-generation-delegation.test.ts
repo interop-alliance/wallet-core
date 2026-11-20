@@ -223,13 +223,7 @@ describe('mintGenerationDelegation', () => {
         'https://storage.example/was/space/account-space-1/'
       )
       expect(delegation.invocationTarget.endsWith('/')).toBe(true)
-      expect(delegation.allowedAction).toEqual([
-        'GET',
-        'HEAD',
-        'POST',
-        'PUT',
-        'DELETE'
-      ])
+      expect(delegation.allowedAction).toEqual(['GET', 'POST', 'PUT', 'DELETE'])
       expect(delegation.allowedAction).toEqual(GENERATION_DELEGATION_ACTIONS)
       expect(delegation.controller).toBe(did)
 

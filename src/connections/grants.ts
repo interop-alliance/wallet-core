@@ -580,8 +580,8 @@ export function latestIndexPerScope({
  * The grants one connection request's consent produced: those sharing their
  * `grantedAt` with an inbox grant on the same list (one targeting exactly
  * this Space's inbox collection container and allowing `POST`), whose action
- * set is exactly `GET` and `HEAD` on a Collection container, or exactly
- * `POST` on the inbox. A write grant, and a read grant from another consent,
+ * set is exactly `GET` on a Collection container, or exactly `POST` on the
+ * inbox. A write grant, and a read grant from another consent,
  * are out of scope.
  *
  * @param options {object}
@@ -614,7 +614,7 @@ export function renewalScopeGrants({
       return false
     }
     const actions = actionsOf(grant)
-    if (actions === 'GET HEAD') {
+    if (actions === 'GET') {
       return (
         collectionIdInSpace({ target: grant.target, spaceUrl }) !== undefined
       )
