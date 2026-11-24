@@ -169,6 +169,18 @@ export interface StandingUnlockKeys {
 }
 
 /**
+ * A standing credential named for removal by its `keyAgreement` publication
+ * and the rung-0 hash its member names (`ladderCommitment`), for a caller
+ * that holds no update key of the credential's. The one such caller is the
+ * completer of a transient recovery spend torn after its add-and-retire
+ * entry, which reads the hash off the replacement code's member.
+ */
+export interface CommitmentAnchoredUnlockKeys {
+  keyAgreement: UnlockKeyAgreementPublication
+  ladderCommitment: string
+}
+
+/**
  * The verification-method id a credential's key-agreement entry publishes
  * under: `<did>#<multibase>` for a verbatim key (indistinguishable by id from
  * any other keyAgreement entry), `<did>#<commitment>` for a commitment entry
@@ -222,6 +234,17 @@ export function unlockKeyVmId({
  * ladder seed in hand the cross-check is direct: the seed's rung-0 hash must
  * be the member's named anchor, and the seeded walk is returned.
  *
+ * A caller holding no update key names the credential by its member's
+ * commitment instead ({@link CommitmentAnchoredUnlockKeys}). There is no
+ * registry walk to cross-check then. The supplied hash must be the one the
+ * standing member names, and a member naming another refuses with
+ * {@link LadderAttributionError}. The walk runs from the supplied hash. A
+ * member already gone is a completed removal re-running, and the walk from
+ * the hash claims nothing there.
+ *
+ * `actingLadderSeed` is handed to every walk for the elimination arm of
+ * {@link attributeLadderInventory}.
+ *
  * Whichever reading comes back, it is held against the account's SURVIVING
  * enrolled clients before it is returned
  * ({@link survivingClientKeyProtection}): every client the document lists
@@ -250,22 +273,27 @@ export function unlockKeyVmId({
  * @param options {object}
  * @param options.log {DIDLog}   a resolved, caller-verified log
  * @param options.did {string}   the account DID the log resolves to
- * @param options.unlockKeys {StandingUnlockKeys}   the credential's recorded
- *   public inventory
+ * @param options.unlockKeys {StandingUnlockKeys |
+ *   CommitmentAnchoredUnlockKeys}   the credential's recorded public
+ *   inventory, or its key-agreement publication and member commitment
  * @param [options.ladderSeed] {Uint8Array}   the credential's ladder seed,
  *   when the ceremony holds it
+ * @param [options.actingLadderSeed] {Uint8Array}   the ladder seed of the
+ *   credential performing the retirement, for the elimination arm
  * @returns {Promise<LadderStandingInventory>}
  */
 export async function attributeUnlockLadderInventory({
   log,
   did,
   unlockKeys,
-  ladderSeed
+  ladderSeed,
+  actingLadderSeed
 }: {
   log: DIDLog
   did: string
-  unlockKeys: StandingUnlockKeys
+  unlockKeys: StandingUnlockKeys | CommitmentAnchoredUnlockKeys
   ladderSeed?: Uint8Array
+  actingLadderSeed?: Uint8Array
 }): Promise<LadderStandingInventory> {
   const credentialVmId = unlockKeyVmId({
     did,
@@ -295,15 +323,47 @@ export async function attributeUnlockLadderInventory({
         log,
         anchorHash: seedAnchorHash,
         credentialVmId,
-        ladderSeed
+        ladderSeed,
+        actingLadderSeed
       }),
       registryAnchoredAlone: false
+    })
+  }
+  // An object carrying both members is read in the recorded form, which
+  // cross-checks two anchors.
+  if (!('updateKeyMultibase' in unlockKeys)) {
+    // Held against what the member's introducing entry named, whether or
+    // not that value resolves as an anchor: a standing member restated since,
+    // or one naming a hash the log never committed for it, still names one
+    // value, and a walk from any other hash would strike another ladder's.
+    const reading = credentialLadderCommitment({ log, credentialVmId })
+    if (
+      reading?.stands === true &&
+      reading.named !== unlockKeys.ladderCommitment
+    ) {
+      throw new LadderAttributionError(
+        "The credential's keyAgreement member names a ladder commitment " +
+          'other than the one supplied; refusing to strike on anchors that ' +
+          'disagree.'
+      )
+    }
+    return leavingSurvivingClients({
+      log,
+      credentialVmId,
+      inventory: await attributeLadderInventory({
+        log,
+        anchorHash: unlockKeys.ladderCommitment,
+        credentialVmId,
+        actingLadderSeed
+      }),
+      registryAnchoredAlone: memberAnchor === undefined
     })
   }
   const registryAnchored = await attributeLadderInventory({
     log,
     anchorKeyMultibase: unlockKeys.updateKeyMultibase,
-    credentialVmId
+    credentialVmId,
+    actingLadderSeed
   })
   if (memberAnchor === undefined) {
     return leavingSurvivingClients({
@@ -316,7 +376,8 @@ export async function attributeUnlockLadderInventory({
   const memberAnchored = await attributeLadderInventory({
     log,
     anchorHash: memberAnchor.anchorHash,
-    credentialVmId
+    credentialVmId,
+    actingLadderSeed
   })
   const contained = (subset: keyof LadderStandingInventory): boolean => {
     const within = new Set(memberAnchored[subset])
@@ -540,6 +601,9 @@ export async function ladderVmClaimOf({
  * @param [options.anchorKeyMultibase] {string}   the update key the walk was
  *   anchored on: the candidate reading's second anchor form, and named in
  *   the refusal
+ * @param [options.anchorHash] {string}   the same anchor as a committed hash,
+ *   for a caller that named the credential by its member's commitment. It
+ *   widens the candidate reading the same way and is not named in the refusal
  * @returns {Promise<void>}
  */
 export async function assertLadderVmClaimed({
@@ -547,13 +611,15 @@ export async function assertLadderVmClaimed({
   doc,
   credentialVmId,
   claim,
-  anchorKeyMultibase
+  anchorKeyMultibase,
+  anchorHash
 }: {
   log: DIDLog
   doc: DIDDoc
   credentialVmId: string
   claim: { ladderVmId?: string; struck: string[]; unclaimed: string[] }
   anchorKeyMultibase?: string
+  anchorHash?: string
 }): Promise<void> {
   const credentialStands = (doc.verificationMethod ?? []).some(
     method => method.id === credentialVmId
@@ -569,7 +635,8 @@ export async function assertLadderVmClaimed({
   const candidates = await ladderVmIdsIntroducedWithCredential({
     log,
     credentialVmId,
-    ...(anchorKeyMultibase !== undefined ? { anchorKeyMultibase } : {})
+    ...(anchorKeyMultibase !== undefined ? { anchorKeyMultibase } : {}),
+    ...(anchorHash !== undefined ? { anchorHash } : {})
   })
   const unclaimed = claim.unclaimed.filter(id => candidates.includes(id))
   if (unclaimed.length === 0) {
@@ -879,7 +946,7 @@ export async function publishUnlockKey(options: {
  * The credential's LADDER VM goes in the same entry, so a retired credential
  * no longer signs governed-log appends or account delegations. This is the
  * sole remover, and it needs no seed to do it: the VM is attributed from the
- * log on any of three arms ({@link attributeLadderInventory}). The SIGNER
+ * log on any of four arms ({@link attributeLadderInventory}). The SIGNER
  * arm claims a VM whose publishing entry a ladder rung signed. The
  * CO-INTRODUCTION arm claims one whose publishing entry also introduced this
  * credential's own `keyAgreement` member, which is what reaches a bind entry
@@ -887,7 +954,14 @@ export async function publishUnlockKey(options: {
  * one credential-class key-agreement member and exactly one ladder VM. The
  * COMMITMENT arm claims one whose publishing entry committed a hash this
  * ladder knows a priori and introduced no other credential's member, which is
- * what reaches a reinstall for a credential whose member already stands. A VM
+ * what reaches a reinstall for a credential whose member already stands. The
+ * ELIMINATION arm runs only when the caller supplies `actingLadderSeed`, the
+ * ladder seed of the credential performing the removal. It claims the other
+ * VM of an entry that introduced exactly two ladder VMs and exactly two
+ * credential-class members, this credential's and the acting one's
+ * (`decisions/0033`). That is the transient recovery's add-and-retire entry,
+ * and the arm is what lets a ladder-signed removal of an orphan replacement
+ * code strike its member, its rung-0 hash, and its ladder VM in one entry. A VM
  * no arm claims is left standing rather than struck -- on an account
  * with several standing credentials, striking an unattributed key would take
  * out a survivor's. With the seed in hand the derived id is struck too, and
@@ -903,9 +977,22 @@ export async function publishUnlockKey(options: {
  * the walk was anchored on. The retirement ceremony and a recovery code's
  * removal both rely on it.
  *
+ * The credential is named by `unlockKeys` in either of two forms. The
+ * recorded form carries its update key ({@link StandingUnlockKeys}). The
+ * commitment form carries the rung-0 hash its member names
+ * ({@link CommitmentAnchoredUnlockKeys}), for a caller that holds no update
+ * key of the credential's. The commitment form runs no registry-anchored
+ * walk, and its gate refusal names no anchor key.
+ *
  * @param options {object}   see {@link publishUnlockKey}, plus:
+ * @param options.unlockKeys {StandingUnlockKeys |
+ *   CommitmentAnchoredUnlockKeys}   the credential to remove
  * @param [options.ladderSeed] {Uint8Array}   the retired credential's ladder
  *   seed, when in hand
+ * @param [options.actingLadderSeed] {Uint8Array}   the ladder seed of the
+ *   credential performing the removal, for the elimination arm. It is a
+ *   separate input from the ladder signer's seed, so a removal that passes
+ *   none reads the log exactly as before
  * @param [options.projectionStore] {object}   an `id`-collection store the
  *   caller may write through (a transient session's, bound to its generation
  *   delegation; an enrolled client's own root-invoking store). Supplied, the
@@ -929,8 +1016,9 @@ export async function removeUnlockKey(options: {
   idStore: AccountLogStore
   signer: AccountLogSigner
   projectionStore?: DidWebProjectionStore
-  unlockKeys: StandingUnlockKeys
+  unlockKeys: StandingUnlockKeys | CommitmentAnchoredUnlockKeys
   ladderSeed?: Uint8Array
+  actingLadderSeed?: Uint8Array
   expectedDid?: string
   verb?: string
 }): Promise<{
@@ -959,6 +1047,7 @@ async function setUnlockKeyInventoryOnce({
   projectionStore,
   unlockKeys,
   ladderSeed,
+  actingLadderSeed,
   part = 'all',
   expectedDid,
   verb,
@@ -967,8 +1056,9 @@ async function setUnlockKeyInventoryOnce({
   idStore: AccountLogStore
   signer: AccountLogSigner
   projectionStore?: DidWebProjectionStore
-  unlockKeys: StandingUnlockKeys
+  unlockKeys: StandingUnlockKeys | CommitmentAnchoredUnlockKeys
   ladderSeed?: Uint8Array | null
+  actingLadderSeed?: Uint8Array
   part?: UnlockInventoryPart
   expectedDid?: string
   verb?: string
@@ -995,7 +1085,15 @@ async function setUnlockKeyInventoryOnce({
     removesInventory: polarity === 'remove',
     build: async ({ published, concludeUnchanged }) => {
       const { did, doc } = published
-      const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)
+      // The commitment form names the hash outright and holds no key.
+      const anchorKeyMultibase =
+        'updateKeyMultibase' in unlockKeys
+          ? unlockKeys.updateKeyMultibase
+          : undefined
+      const keyHash =
+        'updateKeyMultibase' in unlockKeys
+          ? await deriveNextKeyHash(unlockKeys.updateKeyMultibase)
+          : unlockKeys.ladderCommitment
       const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
       // What the bind commits and names as the member's ladder commitment:
       // `hash(rung 0)` derived from the seed the bind holds, which is what
@@ -1066,7 +1164,8 @@ async function setUnlockKeyInventoryOnce({
               log: published.log,
               did,
               unlockKeys,
-              ...(ladderSeed ? { ladderSeed } : {})
+              ...(ladderSeed ? { ladderSeed } : {}),
+              actingLadderSeed
             })
           : { revealedKeys: [], committedHashes: [], ladderVmIds: [] }
       const removedHashes = new Set(inventory.committedHashes)
@@ -1103,7 +1202,9 @@ async function setUnlockKeyInventoryOnce({
           doc,
           credentialVmId: vmId,
           claim,
-          anchorKeyMultibase: unlockKeys.updateKeyMultibase
+          ...(anchorKeyMultibase !== undefined
+            ? { anchorKeyMultibase }
+            : { anchorHash: keyHash })
         })
       }
       const struckLadderVmIds = new Set(claim.struck)

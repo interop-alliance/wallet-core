@@ -48,7 +48,7 @@ import {
 } from '../resourceLog/document.js'
 import { survivingClientKeyProtection } from './revokeClient.js'
 import { log as logger } from '../log.js'
-import { ladderRung } from './ladderDerivation.js'
+import { ladderRung, ladderVmKeyMultibase } from './ladderDerivation.js'
 import type { LadderRung } from './ladderDerivation.js'
 
 /**
@@ -1440,7 +1440,7 @@ export async function attributeRetiredCredentialRungs({
  * - a claim or revealed key that later leaves the parameters without a
  *   completion was struck by some other edit and simply stops standing;
  * - a ladder VM standing in the final document belongs to this ladder on
- *   either of two arms, asked at the entry that PUBLISHED it (the entry at
+ *   any of four arms, asked at the entry that PUBLISHED it (the entry at
  *   which the id appeared among the document's ladder VMs). The SIGNER arm:
  *   that entry was signed by a key this ladder accounted for at that point,
  *   which covers every install a ladder rung signs (the ladder-anchored
@@ -1466,6 +1466,20 @@ export async function attributeRetiredCredentialRungs({
  *   for a credential whose member already stands, so neither of the other
  *   arms can see it. Like the co-introduction arm it needs `credentialVmId`
  *   in hand, since with no id the foreign-member guard would pass vacuously.
+ *   The ELIMINATION arm (`decisions/0033`) is the one arm that reads a
+ *   two-VM entry, and it runs only when the caller supplies the ACTING
+ *   credential's ladder seed (`actingLadderSeed`), a seed other than this
+ *   credential's own. It asks four things of the entry that introduced this
+ *   credential's member. The entry introduced exactly two ladder VMs. One of
+ *   them is the VM the acting seed derives. The entry introduced exactly two
+ *   credential-class `keyAgreement` members. The member beside this
+ *   credential's names the acting seed's rung-0 hash as its
+ *   `ladderCommitment`. The VM claimed is the other of the two. Each
+ *   condition fails closed. That entry shape has one emitter, the transient
+ *   recovery's add-and-retire entry, and the arm is what lets a completer of
+ *   a spend torn after that entry strike the replacement code nobody was
+ *   shown. The arm claims nothing for the acting credential, whose own seed
+ *   already names its VM.
  *
  * One narrowing runs across both the signer arm and the hash claims. A ladder
  * derives exactly ONE verification method from its seed, so a ladder already
@@ -1532,6 +1546,10 @@ export async function attributeRetiredCredentialRungs({
  *   credential stands afterwards) from a spend (its inventory goes in the same
  *   entry), which the ladder VM's co-introduction arm is anchored on, and
  *   which supplies the anchor itself when neither anchor form is passed
+ * @param [options.actingLadderSeed] {Uint8Array}   the ladder seed of the
+ *   ACTING credential, the one retiring this credential, for the elimination
+ *   arm. It is a different input from `ladderSeed`, which is this
+ *   credential's own. It takes effect only beside `credentialVmId`
  * @param [options.maxScan] {number}   seeded pre-derivation bound; defaults to
  *   {@link LADDER_MAX_SCAN}
  * @returns {Promise<LadderStandingInventory>}   what currently stands; every
@@ -1543,6 +1561,7 @@ export async function attributeLadderInventory({
   anchorHash: suppliedAnchorHash,
   ladderSeed,
   credentialVmId,
+  actingLadderSeed,
   maxScan = LADDER_MAX_SCAN
 }: {
   log: DIDLog
@@ -1550,6 +1569,7 @@ export async function attributeLadderInventory({
   anchorHash?: string
   ladderSeed?: Uint8Array
   credentialVmId?: string
+  actingLadderSeed?: Uint8Array
   maxScan?: number
 }): Promise<LadderStandingInventory> {
   const { params, facts, commitIndex } = indexedLadderLog(log)
@@ -1632,6 +1652,25 @@ export async function attributeLadderInventory({
   // `keyAgreement` member (controlled by the account) from an enrolled
   // client's marked twin.
   const credentialDid = credentialVmId?.split('#')[0]
+  // The elimination arm's inputs: the retired credential's member id, and
+  // the two readings of the acting seed, which are the ladder VM it derives
+  // and the rung-0 hash the acting credential's member names.
+  const elimination =
+    actingLadderSeed !== undefined &&
+    credentialVmId !== undefined &&
+    credentialDid !== undefined
+      ? {
+          did: credentialDid,
+          retiredVmId: credentialVmId,
+          actingLadderVmId: `${credentialDid}#${await ladderVmKeyMultibase({
+            ladderSeed: actingLadderSeed
+          })}`,
+          actingCommitment: await deriveNextKeyHash(
+            (await ladderRung({ ladderSeed: actingLadderSeed, index: 0 }))
+              .keyMultibase
+          )
+        }
+      : undefined
   for (const [index, entry] of params.entries()) {
     const currentUpdateKeys = new Set(entry.updateKeys)
     // The pre-pass keeps these order-preserving on purpose: the completion
@@ -1919,10 +1958,28 @@ export async function attributeLadderInventory({
       !foreignVmIntroduced &&
       (introduced.length === 0 ||
         (credentialVmId !== undefined && introduced.includes(credentialVmId)))
+    // The ELIMINATION arm (see the header), the one arm that reads a two-VM
+    // entry: of the two VMs this entry introduced beside this credential's
+    // member and the acting credential's, the one the acting seed does not
+    // derive.
+    // Like the signer arm, it claims nothing for a ladder already holding a
+    // standing VM, since a ladder derives one.
+    const eliminatedVmId =
+      elimination !== undefined && entryDoc !== undefined && !holdsStandingVm
+        ? eliminatedLadderVmId({
+            doc: entryDoc,
+            newVmIds,
+            introduced,
+            ...elimination
+          })
+        : undefined
     for (const vmId of newVmIds) {
       ladderVmClaims.set(
         vmId,
-        coIntroduced || commitmentClaimed || signerClaimed
+        coIntroduced ||
+          commitmentClaimed ||
+          signerClaimed ||
+          vmId === eliminatedVmId
       )
     }
     prevLadderVmIds = new Set(publishedVmIds)
@@ -1939,4 +1996,61 @@ export async function attributeLadderInventory({
       vmId => ladderVmClaims.get(vmId) === true
     )
   }
+}
+
+/**
+ * The elimination arm of {@link attributeLadderInventory}: the ladder VM an
+ * entry introduced for the retired credential, told from the acting
+ * credential's by the acting credential's ladder seed. Returns the VM only
+ * when the entry introduced exactly two ladder VMs, one of them the acting
+ * seed's, and exactly two credential-class `keyAgreement` members, one the
+ * retired credential's and the other naming the acting seed's rung-0 hash as
+ * its `ladderCommitment`. Anything else returns `undefined`.
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   the entry's document
+ * @param options.newVmIds {string[]}   the ladder VMs the entry introduced
+ * @param options.introduced {string[]}   the credential-class `keyAgreement`
+ *   members the entry introduced
+ * @param options.did {string}   the account DID
+ * @param options.retiredVmId {string}   the retired credential's
+ *   `keyAgreement` verification-method id
+ * @param options.actingLadderVmId {string}   the ladder VM id the acting
+ *   seed derives
+ * @param options.actingCommitment {string}   the rung-0 hash the acting seed
+ *   derives
+ * @returns {string | undefined}
+ */
+function eliminatedLadderVmId({
+  doc,
+  newVmIds,
+  introduced,
+  did,
+  retiredVmId,
+  actingLadderVmId,
+  actingCommitment
+}: {
+  doc: KeyAgreementDocument
+  newVmIds: string[]
+  introduced: string[]
+  did: string
+  retiredVmId: string
+  actingLadderVmId: string
+  actingCommitment: string
+}): string | undefined {
+  if (
+    newVmIds.length !== 2 ||
+    introduced.length !== 2 ||
+    !newVmIds.includes(actingLadderVmId) ||
+    !introduced.includes(retiredVmId)
+  ) {
+    return undefined
+  }
+  const actingMemberId = introduced.find(id => id !== retiredVmId)
+  const actingMember = credentialKeyAgreementMethods({ doc, did }).find(
+    method => method.id === actingMemberId
+  )
+  return actingMember?.ladderCommitment === actingCommitment
+    ? newVmIds.find(vmId => vmId !== actingLadderVmId)
+    : undefined
 }

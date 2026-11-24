@@ -79,7 +79,10 @@ export {
   zcapExpiring
 } from './recoveryDelegation.js'
 
-export { recoverySpendRetirementFromLog } from './continuation.js'
+export {
+  addAndRetireEntryIndex,
+  recoverySpendRetirementFromLog
+} from './continuation.js'
 export type { RecoverySpendRetirement } from './continuation.js'
 
 export {
