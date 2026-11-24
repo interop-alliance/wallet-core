@@ -4687,6 +4687,58 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       expect(caught).toBeInstanceOf(LadderAttributionError)
     })
 
+    it('refuses a commitment a struck member did not name, with nothing written', async () => {
+      // The orphan is removed, then named again beside the acting ladder's
+      // staged hash. The member no longer stands, and a walk from that hash
+      // would claim the acting credential's own rungs.
+      const spent = await spentFixture()
+      const { idStore, log, ladderSeed, replacement } = spent
+      const keyAgreement = {
+        publicKeyMultibase: replacement.keyAgreementKeyMultibase
+      }
+      await removeUnlockKey({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        unlockKeys: { keyAgreement, ladderCommitment: spent.replacementHash },
+        actingLadderSeed: ladderSeed
+      })
+      const settled = log()
+      const caught = await removeUnlockKey({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        unlockKeys: {
+          keyAgreement,
+          ladderCommitment: await deriveNextKeyHash(spent.rung1.keyMultibase)
+        },
+        actingLadderSeed: ladderSeed
+      }).catch((err: unknown) => err)
+      expect(caught).toBeInstanceOf(LadderAttributionError)
+      expect(log()).toBe(settled)
+    })
+
+    it('claims nothing for a member the log never introduced', async () => {
+      const spent = await spentFixture()
+      const stranger = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const inventory = await attributeUnlockLadderInventory({
+        log: readLogFromString(spent.log()!),
+        did: spent.did,
+        unlockKeys: {
+          keyAgreement: {
+            publicKeyMultibase: stranger.keyAgreementKeyMultibase
+          },
+          ladderCommitment: await deriveNextKeyHash(spent.rung1.keyMultibase)
+        },
+        actingLadderSeed: spent.ladderSeed
+      })
+      expect(inventory).toEqual({
+        revealedKeys: [],
+        committedHashes: [],
+        ladderVmIds: []
+      })
+    })
+
     it('refuses a supplied commitment a standing member was restated to', async () => {
       // An update-key holder restates the orphan member's commitment to the
       // acting ladder's staged hash. The member names no anchor any more, and

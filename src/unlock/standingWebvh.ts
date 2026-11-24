@@ -237,10 +237,12 @@ export function unlockKeyVmId({
  * A caller holding no update key names the credential by its member's
  * commitment instead ({@link CommitmentAnchoredUnlockKeys}). There is no
  * registry walk to cross-check then. The supplied hash must be the one the
- * standing member names, and a member naming another refuses with
+ * member's latest standing run named, whether or not the member still
+ * stands, and a member naming another refuses with
  * {@link LadderAttributionError}. The walk runs from the supplied hash. A
  * member already gone is a completed removal re-running, and the walk from
- * the hash claims nothing there.
+ * its own hash claims nothing there. A member the log never introduced has
+ * no commitment, and the reading is empty without a walk.
  *
  * `actingLadderSeed` is handed to every walk for the elimination arm of
  * {@link attributeLadderInventory}.
@@ -336,11 +338,16 @@ export async function attributeUnlockLadderInventory({
     // not that value resolves as an anchor: a standing member restated since,
     // or one naming a hash the log never committed for it, still names one
     // value, and a walk from any other hash would strike another ladder's.
+    // A member already struck is held to the same value, the one its last
+    // standing run named, so a re-run under unchanged arguments walks from
+    // the credential's own hash and a hash of another ladder's refuses.
     const reading = credentialLadderCommitment({ log, credentialVmId })
-    if (
-      reading?.stands === true &&
-      reading.named !== unlockKeys.ladderCommitment
-    ) {
+    if (reading === undefined) {
+      // The log never introduced the member, so no hash is its commitment
+      // and nothing of the supplied one is this credential's to strike.
+      return { revealedKeys: [], committedHashes: [], ladderVmIds: [] }
+    }
+    if (reading.named !== unlockKeys.ladderCommitment) {
       throw new LadderAttributionError(
         "The credential's keyAgreement member names a ladder commitment " +
           'other than the one supplied; refusing to strike on anchors that ' +
