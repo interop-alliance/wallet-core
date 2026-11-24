@@ -86,6 +86,35 @@ export const RECOVERY_CODE_SPEND_REFUSALS = [
 ]
 
 /**
+ * The position of a recovery spend's add-and-retire entry in the log. The
+ * entry is located by its own signature on the log: it is the first entry
+ * whose effective `updateKeys` authorize the successor key (the fresh
+ * ladder's rung 0 on the transient continuation, the new client's update key
+ * on the remembered one), which only that entry writes. An add-and-retire
+ * entry always has a predecessor, so a key the genesis entry authorized
+ * reports no position.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the verified account log
+ * @param options.successorKeyMultibase {string}   the update key only the
+ *   add-and-retire entry authorizes
+ * @returns {number | undefined}   the entry's index in `log`, `undefined`
+ *   when no entry past the genesis authorizes the key
+ */
+export function addAndRetireEntryIndex({
+  log,
+  successorKeyMultibase
+}: {
+  log: DIDLog
+  successorKeyMultibase: string
+}): number | undefined {
+  const index = effectiveParameters(log).findIndex(entry =>
+    (entry.updateKeys ?? []).includes(successorKeyMultibase)
+  )
+  return index > 0 ? index : undefined
+}
+
+/**
  * What the add-and-retire entry retired, read back OFF THE LOG -- the resumed
  * spend's answer to the same question the live run answers from the document
  * it is editing. A run torn after that entry but before the caller's registry
@@ -93,10 +122,7 @@ export const RECOVERY_CODE_SPEND_REFUSALS = [
  * without this it would be told nothing was retired and leave every other
  * credential's registry entry standing.
  *
- * The entry is located by its own signature on the log: it is the first entry
- * whose effective `updateKeys` authorize the successor key (the fresh
- * ladder's rung 0 on the transient continuation, the new client's update key
- * on the remembered one), which only that entry writes. What it retired is
+ * The entry is located by {@link addAndRetireEntryIndex}. What it retired is
  * then the credential-class `keyAgreement` ids its predecessor published and
  * it does not, less the spent code's own id -- the same exclusion the live
  * branch makes, since the caller retires that one by name.
@@ -122,12 +148,9 @@ export function retiredCredentialVmIdsFromLog({
   successorKeyMultibase: string
   spentVmId: string
 }): string[] {
-  const params = effectiveParameters(log)
-  const index = params.findIndex(entry =>
-    (entry.updateKeys ?? []).includes(successorKeyMultibase)
-  )
-  const previous = index > 0 ? log[index - 1]?.state : undefined
-  const entryDoc = index > 0 ? log[index]?.state : undefined
+  const index = addAndRetireEntryIndex({ log, successorKeyMultibase })
+  const previous = index === undefined ? undefined : log[index - 1]?.state
+  const entryDoc = index === undefined ? undefined : log[index]?.state
   if (previous === undefined || entryDoc === undefined) {
     return []
   }
@@ -163,7 +186,7 @@ export interface RecoverySpendRetirement {
  * than a second definition of the same question.
  *
  * The entry is located by the successor key it authorized
- * ({@link retiredCredentialVmIdsFromLog}), and the strike is recomputed over
+ * ({@link addAndRetireEntryIndex}), and the strike is recomputed over
  * the log as it stood just before that entry with the same protected sets the
  * first run used: the successor key and its staged partner, and the
  * replacement code's rung 0. A log that does not authorize the successor key
@@ -182,8 +205,12 @@ export interface RecoverySpendRetirement {
  * @param options.successor {object}   the public halves of the key the entry
  *   authorized (`updateKeyMultibase`) and the staged partner whose hash the
  *   reveal entry committed after it (`stagedKeyMultibase`)
- * @param options.replacementUpdateKeyMultibase {string}   the replacement
+ * @param [options.replacementUpdateKeyMultibase] {string}   the replacement
  *   code's rung-0 update key
+ * @param [options.replacementLadderCommitment] {string}   that key's hash, in
+ *   place of the key, for a caller that never held the replacement code. It
+ *   is the `ladderCommitment` the replacement's `keyAgreement` member names
+ *   at the add-and-retire entry. Exactly one of the two is passed
  * @param options.spentKeyAgreementKeyMultibase {string}   the spent code's
  *   key-agreement key, excluded from the retired set
  * @returns {Promise<RecoverySpendRetirement>}
@@ -193,18 +220,28 @@ export async function recoverySpendRetirementFromLog({
   did,
   successor,
   replacementUpdateKeyMultibase,
+  replacementLadderCommitment,
   spentKeyAgreementKeyMultibase
 }: {
   log: DIDLog
   did: string
   successor: { updateKeyMultibase: string; stagedKeyMultibase: string }
-  replacementUpdateKeyMultibase: string
   spentKeyAgreementKeyMultibase: string
-}): Promise<RecoverySpendRetirement> {
-  const entryIndex = effectiveParameters(log).findIndex(entry =>
-    (entry.updateKeys ?? []).includes(successor.updateKeyMultibase)
-  )
-  if (entryIndex === -1) {
+} & (
+  | {
+      replacementUpdateKeyMultibase: string
+      replacementLadderCommitment?: undefined
+    }
+  | {
+      replacementLadderCommitment: string
+      replacementUpdateKeyMultibase?: undefined
+    }
+)): Promise<RecoverySpendRetirement> {
+  const entryIndex = addAndRetireEntryIndex({
+    log,
+    successorKeyMultibase: successor.updateKeyMultibase
+  })
+  if (entryIndex === undefined) {
     return {
       retiredCredentialVmIds: [],
       struckRungHashes: [],
@@ -224,7 +261,8 @@ export async function recoverySpendRetirementFromLog({
   const protectedHashes = await Promise.all([
     deriveNextKeyHash(successor.updateKeyMultibase),
     deriveNextKeyHash(successor.stagedKeyMultibase),
-    deriveNextKeyHash(replacementUpdateKeyMultibase)
+    replacementLadderCommitment ??
+      deriveNextKeyHash(replacementUpdateKeyMultibase)
   ])
   const strike = await retiredCredentialRungsBeforeKey({
     log,

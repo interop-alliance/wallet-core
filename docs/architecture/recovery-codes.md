@@ -35,14 +35,24 @@ continuation therefore publishes TWO ladder VMs in one entry, the fresh
 credential's and the replacement's, and nothing in the log pairs either with
 either credential. The seedless walk claims neither, so the fresh credential's
 VM is named by its own ladder seed, and a seedless retirement of it refuses on
-the retirement gate. Both variants retire every PRE-RECOVERY standing credential
-outright in that same entry: its ladder VM and its `keyAgreement` member leave
-the document, and so does its whole update-key inventory -- the rung hashes it
-has standing in `nextKeyHashes`, plus any rung of its own left revealed in
-`updateKeys` (`attributeRetiredCredentialRungs`, `decisions/0014`). Striking the
-VM alone would rot only a LADDER-signed bridge, and a bridge an enrolled client
-minted outlives the strike, so a committed rung left standing would let a
-retired credential reveal it and republish its own inventory. Each credential is
+the retirement gate. One caller cannot supply the retired credential's seed. A
+transient spend torn inside the roster append that follows the add-and-retire
+entry leaves the replacement code an orphan. Nobody was shown the code, and
+nobody holds its seed. The completer of that spend holds the fresh credential's
+ladder seed and hands it to the removal as `actingLadderSeed`. The elimination
+arm of `attributeLadderInventory` then claims the other VM of the two-VM entry
+for the orphan (`decisions/0033`). The completer names the orphan by the rung-0
+hash its member carries (`removeUnlockKey`'s commitment form), so one
+ladder-signed entry strikes the orphan's member, its hash, and its VM. A
+retirement that passes no acting seed reads the log as before. Both variants
+retire every PRE-RECOVERY standing credential outright in the add-and-retire
+entry: its ladder VM and its `keyAgreement` member leave the document, and so
+does its whole update-key inventory -- the rung hashes it has standing in
+`nextKeyHashes`, plus any rung of its own left revealed in `updateKeys`
+(`attributeRetiredCredentialRungs`, `decisions/0014`). Striking the VM alone
+would rot only a LADDER-signed bridge, and a bridge an enrolled client minted
+outlives the strike, so a committed rung left standing would let a retired
+credential reveal it and republish its own inventory. Each credential is
 anchored from the log alone, since a cold browser can read no registry before
 the entry is written: its `keyAgreement` member names its own rung-0 commitment
 (`ladderCommitment`, the value `hash(rung 0)` takes in `nextKeyHashes`), and the
@@ -114,7 +124,10 @@ passphrase could derive the seed and reveal rung 0. The strike joins
 same way. The two continuations share one body (`recovery/continuation.ts`,
 `recoveryContinuationOnce`). The completed branch reads its report back off the
 log through `recoverySpendRetirementFromLog`, exported for an app resume that
-never re-enters the continuation. The roster side has no direct mapping from
+never re-enters the continuation. That reader takes the replacement's protected
+commitment as its rung-0 key or as the hash itself
+(`replacementLadderCommitment`), and `addAndRetireEntryIndex` returns the
+entry's position for a successor key. The roster side has no direct mapping from
 that. `retiredCredentialVmIds` are `keyAgreement` verification-method ids, not
 roster kids, so they cannot name roster recipients. `rosterRecipientsToRetire`
 (`keys/`) works by subtraction: the current epoch's kids minus the ones the

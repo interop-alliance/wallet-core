@@ -1,5 +1,36 @@
 # @interop/wallet-core Changelog
 
+## 0.115.0 - TBD
+
+### Added
+
+- `attributeLadderInventory` takes `actingLadderSeed`, the ladder seed of the
+  credential performing a retirement. With it the walk claims the retired
+  credential's ladder VM out of an entry that introduced exactly two ladder VMs
+  and exactly two credential-class `keyAgreement` members, the retired
+  credential's and the acting one's (`decisions/0033`). A caller that passes no
+  acting seed gets the same reading as before.
+- `removeUnlockKey` takes `actingLadderSeed` and passes it to the walk. Its
+  `unlockKeys` also accepts `CommitmentAnchoredUnlockKeys`, which names the
+  credential by its member's `ladderCommitment` hash in place of an update key.
+  `attributeUnlockLadderInventory` accepts both.
+- `assertLadderVmClaimed` takes `anchorHash`, the anchor as a committed hash.
+  The commitment form of `removeUnlockKey` passes it, so the retirement gate
+  reads the same candidate ladder VMs under either form.
+- `recoverySpendRetirementFromLog` takes `replacementLadderCommitment`, the
+  replacement code's rung-0 hash, in place of `replacementUpdateKeyMultibase`.
+- `addAndRetireEntryIndex` (`./recovery`) returns the position of a recovery
+  spend's add-and-retire entry for a successor key.
+
+### Changed
+
+- `assertLadderAppendLicensed` accepts a ladder-signed rotation carrying
+  controller version V when a version licensed for the appending ladder lies at
+  or before V and after the version the verified log head carries. It used to
+  require V itself to be the licensed version. Every log the earlier rule
+  accepted is still accepted. This is a verifier-side rule, so every reader of a
+  roster log takes this release before a writer emits an entry that needs it.
+
 ## 0.114.0 - 2026-11-20
 
 ### Changed

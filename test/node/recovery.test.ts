@@ -47,7 +47,10 @@ import {
 import type { AccountLogStore } from '../../src/webvh/accountEntry.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
 import { signAccountEntry } from '../../src/webvh/accountEntry.js'
-import { recoverySpendRetirementFromLog } from '../../src/recovery/continuation.js'
+import {
+  addAndRetireEntryIndex,
+  recoverySpendRetirementFromLog
+} from '../../src/recovery/continuation.js'
 import { createLadderAnchoredAccountLog } from '../../src/clientAnnex/ladderAnchored.js'
 import { BuiltOnHeadNotReachedError } from '../../src/webvh/builtOnHead.js'
 import type { BuiltOnHead } from '../../src/webvh/builtOnHead.js'
@@ -67,6 +70,7 @@ import {
 import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { ladderVmIds, relationIds } from '../../src/resourceLog/document.js'
 import {
+  attributeUnlockLadderInventory,
   preflightUnlockCredentialRetirement,
   publishUnlockKey,
   removeUnlockKey,
@@ -4503,6 +4507,276 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       )
     }
   )
+
+  describe('the elimination arm', () => {
+    /**
+     * A completed transient spend, plus the names the arm's assertions read:
+     * the two ladder VM ids the add-and-retire entry published, the
+     * replacement member's id and its rung-0 hash.
+     */
+    async function spentFixture() {
+      const fixture = await ladderRecoveryFixture()
+      const { did, ladderSeed, replacement } = fixture
+      await transientSpend({ fixture, ladderSeed, replacement })
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+      return {
+        ...fixture,
+        rung0,
+        rung1,
+        freshLadderVmId: `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`,
+        replacementLadderVmId: `${did}#${replacement.ladderVmKeyMultibase}`,
+        replacementVmId: recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+        }),
+        replacementHash: await deriveNextKeyHash(replacement.updateKeyMultibase)
+      }
+    }
+
+    it("claims the orphan's ladder VM, and nothing else, under the acting seed", async () => {
+      const spent = await spentFixture()
+      const parsed = readLogFromString(spent.log()!)
+      const inventory = await attributeLadderInventory({
+        log: parsed,
+        credentialVmId: spent.replacementVmId,
+        actingLadderSeed: spent.ladderSeed
+      })
+      expect(inventory.ladderVmIds).toEqual([spent.replacementLadderVmId])
+      expect(inventory.committedHashes).toEqual([spent.replacementHash])
+      expect(inventory.revealedKeys).toEqual([])
+    })
+
+    it('claims nothing without the acting seed, or under a seed the entry does not show', async () => {
+      const spent = await spentFixture()
+      const parsed = readLogFromString(spent.log()!)
+      const seedless = await attributeLadderInventory({
+        log: parsed,
+        credentialVmId: spent.replacementVmId
+      })
+      expect(seedless.ladderVmIds).toEqual([])
+      const stranger = await attributeLadderInventory({
+        log: parsed,
+        credentialVmId: spent.replacementVmId,
+        actingLadderSeed: generateLadderSeed()
+      })
+      expect(stranger.ladderVmIds).toEqual([])
+    })
+
+    it('claims nothing for the acting credential itself', async () => {
+      const spent = await spentFixture()
+      const inventory = await attributeLadderInventory({
+        log: readLogFromString(spent.log()!),
+        credentialVmId: unlockKeyVmId({
+          did: spent.did,
+          keyAgreement: spent.credentialKeyAgreement
+        }),
+        actingLadderSeed: spent.ladderSeed
+      })
+      expect(inventory.ladderVmIds).toEqual([])
+    })
+
+    it('claims nothing when the entry introduced three ladder VMs', async () => {
+      const spent = await spentFixture()
+      const parsed = structuredClone(readLogFromString(spent.log()!))
+      const at = addAndRetireEntryIndex({
+        log: parsed,
+        successorKeyMultibase: spent.rung0.keyMultibase
+      })!
+      // A third ladder VM beside the two, restated by every later entry: the
+      // shape of the replacement's VM under another key.
+      const thirdKey = await ladderVmKeyMultibase({
+        ladderSeed: generateLadderSeed()
+      })
+      const thirdId = `${spent.did}#${thirdKey}`
+      for (const entry of parsed.slice(at)) {
+        const doc = entry.state as unknown as {
+          verificationMethod: Array<Record<string, unknown>>
+          assertionMethod: string[]
+          capabilityDelegation: string[]
+        }
+        const template = doc.verificationMethod.find(
+          method => method.id === spent.replacementLadderVmId
+        )!
+        doc.verificationMethod.push({
+          ...template,
+          id: thirdId,
+          publicKeyMultibase: thirdKey
+        })
+        doc.assertionMethod.push(thirdId)
+        doc.capabilityDelegation.push(thirdId)
+      }
+      expect(ladderVmIds({ doc: parsed.at(-1)!.state! })).toContain(thirdId)
+      const inventory = await attributeLadderInventory({
+        log: parsed,
+        credentialVmId: spent.replacementVmId,
+        actingLadderSeed: spent.ladderSeed
+      })
+      expect(inventory.ladderVmIds).toEqual([])
+    })
+
+    it("strikes the orphan's whole inventory in one ladder-signed entry, anchored by its commitment", async () => {
+      const spent = await spentFixture()
+      const { idStore, log, ladderSeed, replacement } = spent
+      const unlockKeys = {
+        keyAgreement: {
+          publicKeyMultibase: replacement.keyAgreementKeyMultibase
+        },
+        ladderCommitment: spent.replacementHash
+      }
+      // Without the acting seed the gate still refuses, with nothing written.
+      const before = log()
+      const refusal = (await removeUnlockKey({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        unlockKeys
+      }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
+      expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
+      expect(refusal.anchorKeyMultibase).toBeUndefined()
+      expect(log()).toBe(before)
+
+      const removal = await removeUnlockKey({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        unlockKeys,
+        actingLadderSeed: ladderSeed
+      })
+      expect(removal.ladderVm.struck).toEqual([spent.replacementLadderVmId])
+      const state = await resolved(log)
+      const doc = state.doc!
+      expect(ladderVmIds({ doc })).toEqual([spent.freshLadderVmId])
+      expect(relationIds(doc.keyAgreement)).not.toContain(spent.replacementVmId)
+      expect(state.meta.nextKeyHashes).not.toContain(spent.replacementHash)
+      // The acting credential's own inventory is untouched.
+      expect(state.meta.updateKeys).toContain(spent.rung0.keyMultibase)
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(spent.rung1.keyMultibase)
+      )
+      expect(relationIds(doc.keyAgreement)).toContain(
+        unlockKeyVmId({
+          did: spent.did,
+          keyAgreement: spent.credentialKeyAgreement
+        })
+      )
+
+      // A re-run finds nothing standing and publishes nothing.
+      const settled = log()
+      const rerun = await removeUnlockKey({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        unlockKeys,
+        actingLadderSeed: ladderSeed
+      })
+      expect(rerun.ladderVm.struck).toEqual([])
+      expect(log()).toBe(settled)
+    })
+
+    it('refuses a commitment the standing member does not name', async () => {
+      const spent = await spentFixture()
+      const caught = await removeUnlockKey({
+        idStore: spent.idStore,
+        signer: { kind: 'ladder', ladderSeed: spent.ladderSeed },
+        unlockKeys: {
+          keyAgreement: {
+            publicKeyMultibase: spent.replacement.keyAgreementKeyMultibase
+          },
+          ladderCommitment: await deriveNextKeyHash(spent.rung1.keyMultibase)
+        },
+        actingLadderSeed: spent.ladderSeed
+      }).catch((err: unknown) => err)
+      expect(caught).toBeInstanceOf(LadderAttributionError)
+    })
+
+    it('refuses a supplied commitment a standing member was restated to', async () => {
+      // An update-key holder restates the orphan member's commitment to the
+      // acting ladder's staged hash. The member names no anchor any more, and
+      // a caller reading the restated value off the head document must not
+      // get a walk from it.
+      const spent = await spentFixture()
+      const parsed = structuredClone(readLogFromString(spent.log()!))
+      const restated = await deriveNextKeyHash(spent.rung1.keyMultibase)
+      const head = parsed.at(-1)!.state as unknown as {
+        verificationMethod: Array<Record<string, unknown>>
+      }
+      const member = head.verificationMethod.find(
+        method => method.id === spent.replacementVmId
+      )!
+      const entry = structuredClone(parsed.at(-1)!)
+      member.ladderCommitment = spent.replacementHash
+      const restatedMember = (
+        entry.state as unknown as {
+          verificationMethod: Array<Record<string, unknown>>
+        }
+      ).verificationMethod.find(method => method.id === spent.replacementVmId)!
+      restatedMember.ladderCommitment = restated
+      const caught = await attributeUnlockLadderInventory({
+        log: [...parsed, entry],
+        did: spent.did,
+        unlockKeys: {
+          keyAgreement: {
+            publicKeyMultibase: spent.replacement.keyAgreementKeyMultibase
+          },
+          ladderCommitment: restated
+        },
+        actingLadderSeed: spent.ladderSeed
+      }).catch((err: unknown) => err)
+      expect(caught).toBeInstanceOf(LadderAttributionError)
+    })
+
+    it('reads the same retirement report by the replacement hash as by its key', async () => {
+      const spent = await spentFixture()
+      const shared = {
+        log: readLogFromString(spent.log()!),
+        did: spent.did,
+        successor: {
+          updateKeyMultibase: spent.rung0.keyMultibase,
+          stagedKeyMultibase: spent.rung1.keyMultibase
+        },
+        spentKeyAgreementKeyMultibase: spent.code.keyAgreementKeyMultibase
+      }
+      const byKey = await recoverySpendRetirementFromLog({
+        ...shared,
+        replacementUpdateKeyMultibase: spent.replacement.updateKeyMultibase
+      })
+      const byHash = await recoverySpendRetirementFromLog({
+        ...shared,
+        replacementLadderCommitment: spent.replacementHash
+      })
+      expect(byHash).toEqual(byKey)
+      expect(Object.keys(byHash).sort()).toEqual([
+        'retiredCredentialVmIds',
+        'struckRungHashes',
+        'unclaimedCredentialVmIds'
+      ])
+    })
+
+    it('locates the add-and-retire entry by the successor key', async () => {
+      const spent = await spentFixture()
+      const parsed = readLogFromString(spent.log()!)
+      const at = addAndRetireEntryIndex({
+        log: parsed,
+        successorKeyMultibase: spent.rung0.keyMultibase
+      })
+      // The spend's two entries are the log's last two.
+      expect(at).toBe(parsed.length - 1)
+      expect(relationIds(parsed[at!]!.state!.keyAgreement)).toContain(
+        spent.replacementVmId
+      )
+      expect(
+        addAndRetireEntryIndex({
+          log: parsed,
+          successorKeyMultibase: spent.rung1.keyMultibase
+        })
+      ).toBeUndefined()
+      // A key the genesis entry authorized was not put there by a spend.
+      expect(
+        addAndRetireEntryIndex({
+          log: parsed,
+          successorKeyMultibase: parsed[0]!.parameters.updateKeys![0]!
+        })
+      ).toBeUndefined()
+    })
+  })
 })
 
 describe("the recovery code's ladder branch", () => {

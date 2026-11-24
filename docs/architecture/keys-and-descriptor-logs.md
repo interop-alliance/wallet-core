@@ -179,18 +179,25 @@ S(V-1) in either direction. Ordinary client enroll/revoke is excluded
 structurally by the `did:key` controller marker. Shape 3 is a rotation carrying
 a version whose ENROLLED-CLIENT set (the `capabilityInvocation` methods,
 equivalently the marked `keyAgreement` twins) differs from V-1's, in either
-direction, AND whose entry a rung of the appending ladder signed. Shapes 2 and 3
-are one-shot: refused when the verified head already carries that version or
-later (`headControllerVersionIndex >= indexOf(V)`, position in the verified
-version history, exactly the sealing comparison). All three carry a per-entry
-rule: at most one of an entry's proofs may be by a ladder key, since every proof
-of an entry shares one controller version and a co-signing ladder key would
-spend it a second time. Proof order is not integrity-bound, so the count is read
-as a set (`proofKeys`, the hook's entry-level view) and the refusal lands on
-whichever ladder proof is admitted first. A ladder rotation co-signed by an
-ordinary member stays licensed. So a rotation against an unchanged document (the
-silent-rekey shape) is refused by every verifier, while a torn ceremony's
-late-arriving tail still passes.
+direction, AND whose entry a rung of the appending ladder signed. The carried
+version need not be the licensed one. A rotation carrying V is accepted when
+some version W licensed for the appending ladder lies after the head's version
+and at or before V. Shape 3 is read entirely at W, and a version licensed by
+shape 3 for another ladder alone does not serve. So a torn ceremony's completing
+append can carry the head its writer last verified. Shapes 2 and 3 are one-shot:
+an accepted entry spends every licensed version at or before V, and a head
+already carrying V or later refuses (`headControllerVersionIndex >= indexOf(V)`,
+position in the verified version history, exactly the sealing comparison). A
+ladder VM struck before V cannot sign such an entry, since the verifier's
+`assertionMethod` check at V refuses it before the license runs. All three carry
+a per-entry rule: at most one of an entry's proofs may be by a ladder key, since
+every proof of an entry shares one controller version and a co-signing ladder
+key would spend it a second time. Proof order is not integrity-bound, so the
+count is read as a set (`proofKeys`, the hook's entry-level view) and the
+refusal lands on whichever ladder proof is admitted first. A ladder rotation
+co-signed by an ordinary member stays licensed. So a rotation against an
+unchanged document (the silent-rekey shape) is refused by every verifier, while
+a torn ceremony's late-arriving tail still passes.
 
 Shape 3's signer conjunct keeps it out of the any-`keyAgreement`-change
 predicate the clause rejects. A client's own enrollment or revocation entry is

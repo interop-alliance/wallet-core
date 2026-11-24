@@ -18,8 +18,8 @@ importers:
         specifier: ^3.4.8
         version: 3.4.8
       '@interop/did-method-webvh':
-        specifier: ^5.20.0
-        version: 5.20.0(@interop/data-integrity-core@8.12.0)
+        specifier: ^5.22.0
+        version: 5.22.0(@interop/data-integrity-core@8.12.0)
       '@interop/ed25519-signature':
         specifier: ^7.2.5
         version: 7.2.5(@interop/jsonld-signatures@11.9.0)
@@ -27,14 +27,14 @@ importers:
         specifier: ^8.2.2
         version: 8.2.2
       '@interop/ezcap':
-        specifier: ^7.6.0
-        version: 7.6.0
+        specifier: ^7.9.0
+        version: 7.9.0
       '@interop/social-core':
         specifier: ^0.8.1
         version: 0.8.1
       '@interop/vh-resource-log':
         specifier: ^0.11.0
-        version: 0.11.0(@interop/data-integrity-core@8.12.0)(@interop/storage-core@0.46.1)
+        version: 0.11.0(@interop/data-integrity-core@8.12.0)(@interop/storage-core@0.47.0)
       '@interop/x25519-key-agreement-key':
         specifier: ^5.4.3
         version: 5.4.3
@@ -58,14 +58,14 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@interop/pws-client':
-        specifier: ^0.110.0
-        version: 0.110.0(@interop/jsonld-signatures@11.9.0)
+        specifier: ^0.111.0
+        version: 0.111.0(@interop/jsonld-signatures@11.9.0)
       '@interop/storage-core':
-        specifier: ^0.46.1
-        version: 0.46.1
+        specifier: ^0.47.0
+        version: 0.47.0
       '@interop/web-spaces-server':
-        specifier: ^0.46.1
-        version: 0.46.1
+        specifier: ^0.47.0
+        version: 0.47.0
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.64.1
@@ -279,10 +279,6 @@ packages:
     resolution: {integrity: sha512-wQoFUjN1xkF6hmyWz5KDb4uNlUGkRNvM6c0UXGMTAxMMlTZeEbR7bszkbKU4UtJdpgkuMFYh7YdeXeOTMsluoQ==}
     engines: {node: '>=24.0'}
 
-  '@interop/data-integrity-core@8.9.0':
-    resolution: {integrity: sha512-FGj+D6VLb3q+UxAA5PRB0caoj5/cdpDLRW7Hu5cMI7xnpsEABnEi5leOL/BonTtSM6T/OdE/cuTOcrba0TGPdQ==}
-    engines: {node: '>=24.0'}
-
   '@interop/data-integrity-proof@3.4.8':
     resolution: {integrity: sha512-4L7WlVxw4D7gQ80RWP40GVlAIq2ptY4qqKH863k3iy+LJAuNnPes8RrVwxzKv0FUEjFI8AdrZ/fdnLD2yoCr5A==}
     engines: {node: '>=24.0'}
@@ -295,8 +291,8 @@ packages:
     resolution: {integrity: sha512-jCRRkwEd+sROnBrhCaYKEr26jW4ivly3lyf0MA8uF7ditMeECsgDblArBZl9MLYL1lT7qPYo5iaJeYRW69nrjA==}
     engines: {node: '>=24.0'}
 
-  '@interop/did-method-webvh@5.20.0':
-    resolution: {integrity: sha512-M/q/p+A3BOoqd6TqDnNL55TYWte6NY/lS425FM57LQKWnv4FThJcBnCzVMqaAxkvrNtGODafw/FmUxbdln4cfw==}
+  '@interop/did-method-webvh@5.22.0':
+    resolution: {integrity: sha512-8YlEjKobxZ6jOCmFAE3wXVjK4SN05Pr5FpD9QMSfYv3CeWnq/g+nY6DXx/wAPL1IkMBZ6wZh96WRngV806MB9w==}
     engines: {node: '>=22'}
     peerDependencies:
       '@interop/data-integrity-core': ^8.10.0
@@ -349,6 +345,10 @@ packages:
     resolution: {integrity: sha512-RBs2NaK5tKanM/Cqs8PT5kXkf/6b0iSp+aJcFE0o8TrBU0sk+V5NViIRT36NN8fOclLMzOB7myCQeT5xeYAn5A==}
     engines: {node: '>=20.0'}
 
+  '@interop/ezcap@7.9.0':
+    resolution: {integrity: sha512-+mSaEPYN081yom4+PB7lQHHfJ+mX+QOBPkcpW2BJEqpPn+99U4oZ1GZua4WBRcjGLzZhl5vKbdsPD3ysrDrCJw==}
+    engines: {node: '>=20.0'}
+
   '@interop/http-client@1.0.5':
     resolution: {integrity: sha512-t/zL0+mQOjNkzj6usOv6MCOvG/HVOH1GG8Dbp03ympkf4NVOaJavBBJZuE05Xi1Sp4izmjHydDwnJLlzkZpzXQ==}
     engines: {node: '>=22.12'}
@@ -374,8 +374,8 @@ packages:
     resolution: {integrity: sha512-cIUdjyfz0EPXAk9b37XVwqDg1yGocTHEVZg/pfq5cm7ZhAmMQkcj1A1uea8x+Y1VHCJ0GmtTQYqf6Nx2gMplEg==}
     engines: {node: '>=20'}
 
-  '@interop/http-signature-zcap-verify@13.0.0':
-    resolution: {integrity: sha512-oE+fFOrEBK+4kvLtj5pqlkhzkfKRqFuuzV3yb28qu4gTnsxxw+mNH38SrJUBtemoG04A0fvIgQH3UpCdBuvcvw==}
+  '@interop/http-signature-zcap-verify@13.2.0':
+    resolution: {integrity: sha512-+/7yeDv+w9isZSMZguR9vx5lAUkr0UrAX3Q2oOyn+/BtRmCrJsFAM4OVmN9tRklRbE78pKZoZGTPPQZyzalpVg==}
     engines: {node: '>=24.0'}
 
   '@interop/jsonld-signatures@11.9.0':
@@ -398,8 +398,8 @@ packages:
     resolution: {integrity: sha512-2IW190KLOH7GmUqwD7Wg82bc9dC5DYxRpgW5Z+MV87CxsVOu5wRNXr7Bd7Bne0bo3XU04r4lAVq4KB3eJuHbig==}
     engines: {node: '>=24.0'}
 
-  '@interop/pws-client@0.110.0':
-    resolution: {integrity: sha512-Uf0U21CIL8PCzfoBeigFA+4eOcOe/jMPdR68UfYPVg9EisWVrzsSIbcvPR+18nkUYvuEZgpGJq7rwFHGmat/5g==}
+  '@interop/pws-client@0.111.0':
+    resolution: {integrity: sha512-RKlcYqPTicxtgAu4DvmXfYTeWSr84aOWLqyoAWIdq68y/XtKTJCzpUPJCtbUruSkiN9XrFUpP+aPvdTUFVUVlw==}
     engines: {node: '>=24.0'}
 
   '@interop/security-document-loader@10.1.6':
@@ -420,14 +420,18 @@ packages:
     resolution: {integrity: sha512-RVQb2bzHjF3D1PLe7RiVY1te7yTU7kPBDSxEUZhC1H8lWBLl/GW6yg8Bh/DS4NiX61NA9V0gXPpgtYexxH0a9Q==}
     engines: {node: '>=22.0'}
 
+  '@interop/storage-core@0.47.0':
+    resolution: {integrity: sha512-LWzmwpKHkGTpQPd/DchlNrUpJhu5SqiqgpSJtCqSg2IkX8oipuLd+JpE1sfXbhXB1Gs+3GN8vUZkTpOZIO8fPw==}
+    engines: {node: '>=22.0'}
+
   '@interop/vh-resource-log@0.11.0':
     resolution: {integrity: sha512-ZJuTdIMcR6v6gZttf1pjCE8VjfgZaO1jVjGgsEBn2qvDzc6OfIkHrz5XnoKfJCGjUN+Az84S7ppWHv0qj5BbBw==}
     engines: {node: '>=24.0'}
     peerDependencies:
       '@interop/storage-core': '>=0.44.0'
 
-  '@interop/web-spaces-server@0.46.1':
-    resolution: {integrity: sha512-R/wUOETjz7vHApUO2L82GzJVh9O3qwwJho9UK27WwXBvmXIgFWpeAeG5dtcztsm1Ib36zjBv+IPnUyTfTZA2VA==}
+  '@interop/web-spaces-server@0.47.0':
+    resolution: {integrity: sha512-0xXeuDlUTvWwGqi5HYdXjl2FjkT02m1qCCWXlpTOALWi7OcS8i6B31qLKP8n+TxeHmSucGjEZEf3408Y/vsr8w==}
     engines: {node: '>=24.0'}
 
   '@interop/x25519-key-agreement-key@5.4.3':
@@ -436,6 +440,10 @@ packages:
 
   '@interop/zcap@12.0.0':
     resolution: {integrity: sha512-by5d+WfZI8iuqbI/keZlTz1w9wXtgMv/PXSqDx/Jr5AZujUmniaNSKj+BFktMTvEjyZHnvq7SGbCuA5D3Rud9A==}
+    engines: {node: '>=24.0'}
+
+  '@interop/zcap@12.3.1':
+    resolution: {integrity: sha512-B0EolsaYNg0fEhdTIJ+KUkVcYkUE0ljYZBg4Elgxyu/QGTlMysQ4wvPGHFbrLMrxnEK7YYQIJsLdwaAAZR41DA==}
     engines: {node: '>=24.0'}
 
   '@jridgewell/resolve-uri@3.1.2':
@@ -1974,10 +1982,6 @@ snapshots:
     dependencies:
       '@scure/base': 2.4.0
 
-  '@interop/data-integrity-core@8.9.0':
-    dependencies:
-      '@scure/base': 2.4.0
-
   '@interop/data-integrity-proof@3.4.8':
     dependencies:
       '@interop/data-integrity-core': 8.12.0
@@ -1999,7 +2003,7 @@ snapshots:
     transitivePeerDependencies:
       - react-native-get-random-values
 
-  '@interop/did-method-webvh@5.20.0(@interop/data-integrity-core@8.12.0)':
+  '@interop/did-method-webvh@5.22.0(@interop/data-integrity-core@8.12.0)':
     dependencies:
       '@interop/data-integrity-core': 8.12.0
       '@noble/curves': 2.4.0
@@ -2071,10 +2075,22 @@ snapshots:
       '@interop/data-integrity-core': 8.12.0
       '@interop/data-integrity-proof': 3.4.8
       '@interop/ecdsa-signature': 2.0.10(@interop/jsonld-signatures@11.9.0)
-      '@interop/http-client': 1.0.5
+      '@interop/http-client': 1.0.6
       '@interop/http-signature-zcap-invoke': 6.3.0
       '@interop/jsonld-signatures': 11.9.0
       '@interop/zcap': 12.0.0
+    transitivePeerDependencies:
+      - expo-crypto
+
+  '@interop/ezcap@7.9.0':
+    dependencies:
+      '@interop/data-integrity-core': 8.12.0
+      '@interop/data-integrity-proof': 3.4.8
+      '@interop/ecdsa-signature': 2.0.10(@interop/jsonld-signatures@11.9.0)
+      '@interop/http-client': 1.0.6
+      '@interop/http-signature-zcap-invoke': 6.3.0
+      '@interop/jsonld-signatures': 11.9.0
+      '@interop/zcap': 12.3.1
     transitivePeerDependencies:
       - expo-crypto
 
@@ -2096,18 +2112,18 @@ snapshots:
 
   '@interop/http-signature-zcap-invoke@6.3.0':
     dependencies:
-      '@interop/data-integrity-core': 8.9.0
+      '@interop/data-integrity-core': 8.12.0
       '@interop/http-digest-header': 3.2.0
       '@interop/http-signature-header': 5.0.3
       pako: 2.2.0
     transitivePeerDependencies:
       - expo-crypto
 
-  '@interop/http-signature-zcap-verify@13.0.0':
+  '@interop/http-signature-zcap-verify@13.2.0':
     dependencies:
       '@interop/data-integrity-core': 8.12.0
       '@interop/http-signature-header': 5.0.3
-      '@interop/zcap': 12.0.0
+      '@interop/zcap': 12.3.1
       '@scure/base': 2.4.0
       pako: 2.2.0
 
@@ -2143,7 +2159,7 @@ snapshots:
       '@stablelib/chacha': 2.0.1
       '@stablelib/chacha20poly1305': 2.0.1
 
-  '@interop/pws-client@0.110.0(@interop/jsonld-signatures@11.9.0)':
+  '@interop/pws-client@0.111.0(@interop/jsonld-signatures@11.9.0)':
     dependencies:
       '@interop/capability-agent': 0.2.2
       '@interop/data-integrity-core': 8.12.0
@@ -2193,9 +2209,9 @@ snapshots:
 
   '@interop/social-core@0.8.1': {}
 
-  '@interop/space-archive@0.12.0(@interop/storage-core@0.46.1)':
+  '@interop/space-archive@0.12.0(@interop/storage-core@0.47.0)':
     dependencies:
-      '@interop/storage-core': 0.46.1
+      '@interop/storage-core': 0.47.0
       events: 3.3.0
       mime-types: 3.0.2
       tar-stream: 3.2.2
@@ -2207,16 +2223,27 @@ snapshots:
 
   '@interop/storage-core@0.46.1':
     dependencies:
-      '@interop/data-integrity-core': 8.9.0
+      '@interop/data-integrity-core': 8.12.0
+
+  '@interop/storage-core@0.47.0':
+    dependencies:
+      '@interop/data-integrity-core': 8.12.0
 
   '@interop/vh-resource-log@0.11.0(@interop/data-integrity-core@8.12.0)(@interop/storage-core@0.46.1)':
     dependencies:
-      '@interop/did-method-webvh': 5.20.0(@interop/data-integrity-core@8.12.0)
+      '@interop/did-method-webvh': 5.22.0(@interop/data-integrity-core@8.12.0)
       '@interop/storage-core': 0.46.1
     transitivePeerDependencies:
       - '@interop/data-integrity-core'
 
-  '@interop/web-spaces-server@0.46.1':
+  '@interop/vh-resource-log@0.11.0(@interop/data-integrity-core@8.12.0)(@interop/storage-core@0.47.0)':
+    dependencies:
+      '@interop/did-method-webvh': 5.22.0(@interop/data-integrity-core@8.12.0)
+      '@interop/storage-core': 0.47.0
+    transitivePeerDependencies:
+      - '@interop/data-integrity-core'
+
+  '@interop/web-spaces-server@0.47.0':
     dependencies:
       '@fastify/cors': 11.3.1
       '@fastify/multipart': 10.1.6
@@ -2226,22 +2253,22 @@ snapshots:
       '@interop/data-integrity-core': 8.12.0
       '@interop/data-integrity-proof': 3.4.8
       '@interop/did-method-key': 7.5.2
-      '@interop/did-method-webvh': 5.20.0(@interop/data-integrity-core@8.12.0)
+      '@interop/did-method-webvh': 5.22.0(@interop/data-integrity-core@8.12.0)
       '@interop/ed25519-signature': 7.2.5(@interop/jsonld-signatures@11.9.0)
       '@interop/ed25519-verification-key': 8.2.2
-      '@interop/ezcap': 7.6.0
+      '@interop/ezcap': 7.9.0
       '@interop/http-digest-header': 3.2.0
       '@interop/http-signature-header': 5.0.3
       '@interop/http-signature-zcap-invoke': 6.3.0
-      '@interop/http-signature-zcap-verify': 13.0.0
+      '@interop/http-signature-zcap-verify': 13.2.0
       '@interop/jsonld-signatures': 11.9.0
       '@interop/lru-memoize': 4.0.3
       '@interop/minimal-cipher': 7.11.1
       '@interop/security-document-loader': 10.1.6
-      '@interop/space-archive': 0.12.0(@interop/storage-core@0.46.1)
-      '@interop/storage-core': 0.46.1
+      '@interop/space-archive': 0.12.0(@interop/storage-core@0.47.0)
+      '@interop/storage-core': 0.47.0
       '@interop/x25519-key-agreement-key': 5.4.3
-      '@interop/zcap': 12.0.0
+      '@interop/zcap': 12.3.1
       '@scure/base': 2.4.0
       fastify: 5.12.7
       fastify-plugin: 6.0.1
@@ -2270,6 +2297,12 @@ snapshots:
       '@scure/base': 2.4.0
 
   '@interop/zcap@12.0.0':
+    dependencies:
+      '@digitalbazaar/zcap-context': 2.0.1
+      '@interop/data-integrity-core': 8.12.0
+      '@interop/jsonld-signatures': 11.9.0
+
+  '@interop/zcap@12.3.1':
     dependencies:
       '@digitalbazaar/zcap-context': 2.0.1
       '@interop/data-integrity-core': 8.12.0

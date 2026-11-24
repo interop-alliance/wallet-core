@@ -154,6 +154,15 @@ ladder VM named by its own ladder seed rather than by the log; every
 retirement that can reach that seed is unaffected, and a seedless one
 refuses on the retirement gate rather than striking the wrong VM.
 
+Amended 2026-11-23: revisit criterion 3 fired. Seedless ladder attribution
+gains one anchor form, the elimination arm
+(`decisions/0033-the-elimination-arm-of-ladder-attribution.md`). A caller
+holding the acting credential's ladder seed can now claim the other VM of the
+transient continuation's entry for the credential it retires. The arm is
+seeded on the acting side and stays seedless on the retired side. A
+retirement holding no acting seed still claims neither VM, and the retirement
+gate still refuses it.
+
 ## Revisit Criteria
 
 Reopen this decision when one or more of the following holds:

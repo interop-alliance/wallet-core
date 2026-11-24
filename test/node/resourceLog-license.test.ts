@@ -7,7 +7,9 @@
  * enrolled-client set changed and whose entry a rung of the appending ladder
  * signed -- and the refusals around them, above all the silent-rekey shape (a
  * ladder-signed rotation against an unchanged document) and, for the third
- * shape, a version some other signer's entry minted. The license is exercised at all three seams it lives on: the
+ * shape, a version some other signer's entry minted. A rotation may carry a
+ * version after the licensed one, while that licensed version stands after
+ * the head. The license is exercised at all three seams it lives on: the
  * predicate itself over a fake controller, the read path through
  * `verifyResourceLog` on real signed logs, and the write path's pre-append
  * admission check in the log-governed descriptor store. Both shapes carry a
@@ -1356,5 +1358,324 @@ describe('shape 3 on read-back (the verifier-first rollout order)', () => {
       })
     )
     expectLicenseRefusal(caught)
+  })
+})
+
+describe('a carried version after the licensed one', () => {
+  /**
+   * Four versions over one ladder VM: version 1 changes the credential
+   * inventory (shape 2 licenses it), and versions 2 and 3 change nothing. A
+   * writer that last verified version 2 or 3 carries it, while the licensed
+   * version is 1.
+   *
+   * @returns {WebvhResourceLogController}
+   */
+  function laterVersionController(): WebvhResourceLogController {
+    const version = (versionId: string, inventoryKeys: string[]) => ({
+      versionId,
+      keys: ['zLadder'],
+      ladderKeys: ['zLadder'],
+      inventoryKeys
+    })
+    return fakeController({
+      versions: [
+        version('1-v1', ['credA']),
+        version('2-v2', ['credB']),
+        version('3-v3', ['credB']),
+        version('4-v4', ['credB'])
+      ]
+    })
+  }
+
+  it('licenses a later unlicensed version while a licensed one stands after the head', async () => {
+    const controller = laterVersionController()
+    await expect(
+      assertLadderAppendLicensed({
+        controller,
+        controllerVersionIndex: 2,
+        proofKeys: ['zLadder'],
+        headControllerVersionIndex: 0
+      })
+    ).resolves.toBeUndefined()
+    await expect(
+      assertLadderAppendLicensed({
+        controller,
+        controllerVersionIndex: 3,
+        proofKeys: ['zLadder'],
+        headControllerVersionIndex: 0
+      })
+    ).resolves.toBeUndefined()
+  })
+
+  it('requires the carried version itself to be licensed under a null head', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: laterVersionController(),
+        controllerVersionIndex: 3,
+        proofKeys: ['zLadder'],
+        headControllerVersionIndex: null
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+
+  it('refuses a second such append once the head carries the later version', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: laterVersionController(),
+        controllerVersionIndex: 2,
+        proofKeys: ['zLadder'],
+        headControllerVersionIndex: 2
+      })
+    )
+    expectLicenseRefusal(caught)
+    expect((caught as Error).message).toContain('one-shot')
+  })
+
+  it('refuses when no unspent licensed version lies at or before the carried one', async () => {
+    // The head carries version 1, so the only licensed version is spent, and
+    // versions 2 and 3 changed nothing.
+    const controller = laterVersionController()
+    for (const headControllerVersionIndex of [1, 2]) {
+      const caught = await caughtFrom(() =>
+        assertLadderAppendLicensed({
+          controller,
+          controllerVersionIndex: 3,
+          proofKeys: ['zLadder'],
+          headControllerVersionIndex
+        })
+      )
+      expectLicenseRefusal(caught)
+      expect((caught as Error).message).toContain('neither changed')
+    }
+  })
+
+  describe('a version licensed by shape 3 serves its own ladder only', () => {
+    const LADDER_A = 'zLadderA'
+    const LADDER_B = 'zLadderB'
+    const RUNG_A = 'zRungA'
+    const RUNG_B = 'zRungB'
+    const CLIENT_KEY = 'zClientUpdateKey'
+
+    /**
+     * Version 1 is a client enrollment ladder A's rung signed, so shape 3
+     * licenses it for A alone. Version 2 is a client-signed entry that
+     * changes neither set. `laterRungs` is the rung attribution at version
+     * 2, so a case can show that shape 3 is read at the licensed version and
+     * not at the carried one.
+     *
+     * @param [laterRungs] {Record<string, string[]>}
+     * @returns {WebvhResourceLogController}
+     */
+    function twoLadderController(
+      laterRungs: Record<string, string[]> = {
+        [LADDER_A]: [RUNG_A],
+        [LADDER_B]: [RUNG_B]
+      }
+    ): WebvhResourceLogController {
+      const common = {
+        keys: [LADDER_A, LADDER_B],
+        ladderKeys: [LADDER_A, LADDER_B],
+        inventoryKeys: ['credA']
+      }
+      return fakeController({
+        versions: [
+          {
+            versionId: '1-v1',
+            ...common,
+            enrolledClientKeys: ['zClientA'],
+            entrySignerKeys: [RUNG_A],
+            ladderRungKeys: { [LADDER_A]: [RUNG_A], [LADDER_B]: [RUNG_B] }
+          },
+          {
+            versionId: '2-v2',
+            ...common,
+            enrolledClientKeys: ['zClientA', 'zClientB'],
+            entrySignerKeys: [RUNG_A],
+            ladderRungKeys: { [LADDER_A]: [RUNG_A], [LADDER_B]: [RUNG_B] }
+          },
+          {
+            versionId: '3-v3',
+            ...common,
+            enrolledClientKeys: ['zClientA', 'zClientB'],
+            entrySignerKeys: [CLIENT_KEY],
+            ladderRungKeys: laterRungs
+          }
+        ]
+      })
+    }
+
+    it('refuses ladder B and licenses ladder A at the later version', async () => {
+      const controller = twoLadderController()
+      const caught = await caughtFrom(() =>
+        assertLadderAppendLicensed({
+          controller,
+          controllerVersionIndex: 2,
+          proofKeys: [LADDER_B],
+          headControllerVersionIndex: 0
+        })
+      )
+      expectLicenseRefusal(caught)
+      await expect(
+        assertLadderAppendLicensed({
+          controller,
+          controllerVersionIndex: 2,
+          proofKeys: [LADDER_A],
+          headControllerVersionIndex: 0
+        })
+      ).resolves.toBeUndefined()
+    })
+
+    it('reads the rung attribution at the licensed version', async () => {
+      // At the carried version the log attributes A a later rung, which did
+      // not sign the enrollment. Shape 3 is read at the enrollment version,
+      // where RUNG_A is A's and signed it.
+      const controller = twoLadderController({
+        [LADDER_A]: ['zRungAOne'],
+        [LADDER_B]: [RUNG_B]
+      })
+      await expect(
+        assertLadderAppendLicensed({
+          controller,
+          controllerVersionIndex: 2,
+          proofKeys: [LADDER_A],
+          headControllerVersionIndex: 0
+        })
+      ).resolves.toBeUndefined()
+    })
+  })
+
+  describe('end to end through verifyResourceLog', () => {
+    /**
+     * An account with one enrolled client (alice) and one ladder VM, its
+     * versions counted from 1 as their ids are. Version 2 changes the
+     * credential inventory and version 3 changes nothing. Version 4 strikes
+     * the ladder VM, and version 5 changes nothing.
+     */
+    async function makeStrikeAccount() {
+      const alice = await makeRosterClient()
+      const ladder = await makeRosterClient()
+      const withLadder = (versionId: string, inventoryKeys: string[]) => ({
+        versionId,
+        keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
+        ladderKeys: [ladder.signingKeyMultibase],
+        inventoryKeys
+      })
+      const withoutLadder = (versionId: string) => ({
+        versionId,
+        keys: [alice.signingKeyMultibase],
+        inventoryKeys: ['credB']
+      })
+      const versions = [
+        withLadder('1-v1', ['credA']),
+        withLadder('2-v2', ['credB']),
+        withLadder('3-v3', ['credB']),
+        withoutLadder('4-v4'),
+        withoutLadder('5-v5')
+      ]
+      const viewThrough = (count: number) =>
+        fakeController({ versions: versions.slice(0, count) })
+      return { alice, ladder, viewThrough }
+    }
+
+    it('verifies a ladder tail carrying a later version, and refuses a second one', async () => {
+      const { ladder, viewThrough } = await makeStrikeAccount()
+      const genesis = await buildResourceLogGenesis({
+        state: { type: 'TestState', value: 1 },
+        method: METHOD,
+        controller: viewThrough(1),
+        signer: ladder.logSigner
+      })
+      // The writer last verified version 3, which changed nothing. Version 2
+      // is the licensed one and stands after the head.
+      const tail = await buildResourceLogEntry({
+        head: genesis,
+        state: { type: 'TestState', value: 2 },
+        controller: viewThrough(3),
+        signer: ladder.logSigner
+      })
+      const verified = await verifyResourceLog({
+        entries: [genesis, tail],
+        controller: viewThrough(3),
+        expectedMethod: METHOD
+      })
+      expect(verified.state).toEqual({ type: 'TestState', value: 2 })
+      expect(verified.headControllerVersionIndex).toBe(2)
+
+      const second = await buildResourceLogEntry({
+        head: tail,
+        state: { type: 'TestState', value: 3 },
+        controller: viewThrough(3),
+        signer: ladder.logSigner
+      })
+      const caught = await caughtFrom(() =>
+        verifyResourceLog({
+          entries: [genesis, tail, second],
+          controller: viewThrough(3),
+          expectedMethod: METHOD
+        })
+      )
+      expectLicenseRefusal(caught)
+    })
+
+    it('refuses a struck ladder VM at the key-set check, before the license runs', async () => {
+      const { ladder, viewThrough } = await makeStrikeAccount()
+      const controller = viewThrough(5)
+      const genesis = await buildResourceLogGenesis({
+        state: { type: 'TestState', value: 1 },
+        method: METHOD,
+        controller: viewThrough(1),
+        signer: ladder.logSigner
+      })
+      // The struck VM signs an entry carrying version 5, after its strike.
+      const afterStrike = await buildResourceLogEntry({
+        head: genesis,
+        state: { type: 'TestState', value: 2 },
+        controller,
+        signer: ladder.logSigner
+      })
+      let admissions = 0
+      const counting: WebvhResourceLogController = {
+        ...controller,
+        async admitAppend(input) {
+          admissions += 1
+          await controller.admitAppend(input)
+        }
+      }
+      const caught = await caughtFrom(() =>
+        verifyResourceLog({
+          entries: [genesis, afterStrike],
+          controller: counting,
+          expectedMethod: METHOD
+        })
+      )
+      expect((caught as Error).name).toBe('ResourceLogIntegrityError')
+      expect((caught as Error).message).toContain('assertionMethod')
+      expect(admissions).toBe(0)
+      // The license alone would admit this: versions 2 and 4 both changed
+      // the inventory, and the struck key is no ladder key at version 5.
+      await expect(
+        assertLadderAppendLicensed({
+          controller,
+          controllerVersionIndex: 4,
+          proofKeys: [ladder.signingKeyMultibase],
+          headControllerVersionIndex: 0
+        })
+      ).resolves.toBeUndefined()
+
+      // Before its strike the VM can still sign an entry carrying version 3.
+      const beforeStrike = await buildResourceLogEntry({
+        head: genesis,
+        state: { type: 'TestState', value: 2 },
+        controller: viewThrough(3),
+        signer: ladder.logSigner
+      })
+      const verified = await verifyResourceLog({
+        entries: [genesis, beforeStrike],
+        controller,
+        expectedMethod: METHOD
+      })
+      expect(verified.headControllerVersionIndex).toBe(2)
+    })
   })
 })

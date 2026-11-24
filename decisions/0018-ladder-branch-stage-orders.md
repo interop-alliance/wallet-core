@@ -174,17 +174,35 @@ seed, and credential rotation is already their remedy.
 - Two ceremonies racing for one license shot at the same version is now
   a real state, so the admitted appends need a register. Each ceremony's
   anchoring entry and the license shape it spends are named in
-  wallet-core's ARCHITECTURE.md beside the ceremony-tail license.
+  wallet-core's ARCHITECTURE.md beside the ceremony-tail license. One
+  append spends every unspent licensed version at or before the version
+  it carries, so the register names the shots an append can spend
+  together.
 - A ceremony torn between its entry and its append leaves that shot
-  dead. The two-direction convergence means a later ceremony's append
-  mends the roster, so the residue is bounded to the window between the
-  two. Whether a dedicated fresh-version entry is wanted where no later
+  spendable by a later append that carries a later version, as long as
+  no roster entry has carried that version or a later one. The
+  two-direction convergence means a later ceremony's append mends the
+  roster, so the residue is bounded to the window between the two.
+  Whether a dedicated fresh-version entry is wanted where no later
   ceremony comes is open, and belongs to the license's own item.
 
 ## Amendment (2026-09-23)
 
 The enrolled-client arm's discriminant was renamed from `kind: 'client'` to
 `kind: 'enrolled'`; the Decision text above shows the current name.
+
+## Amendment (2026-11-23)
+
+The ceremony-tail license now accepts a ladder-signed
+roster append carrying version V when some version licensed for the appending
+ladder lies at or before V and after the version the roster head carries (the
+2026-11-23 amendment to clause B in app-connect-spec
+`decisions/0003-ladder-authority-clauses.md`). A shot is therefore no longer
+one per append, and a torn ceremony's shot is no longer dead. The shot stays
+spendable by a later append carrying a later version, until a roster entry
+carries that version or a later one. One append spends every unspent licensed
+version at or before the version it carries. The Consequences section above
+states the amended behavior.
 
 ## Revisit Criteria
 
