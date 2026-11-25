@@ -39,9 +39,9 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@interop/logger": "^0.2.0",
-    "@interop/pws-client": "^0.111.0",
-    "@interop/storage-core": "^0.47.0",
-    "@interop/web-spaces-server": "^0.47.0",
+    "@interop/pws-client": "^0.112.0",
+    "@interop/storage-core": "^0.48.0",
+    "@interop/web-spaces-server": "^0.47.2",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.7",

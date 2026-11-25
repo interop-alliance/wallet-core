@@ -177,24 +177,6 @@ aside. Invariants a torn run can leave violated (numbered as in `INVARIANT_IDS`,
 `account-document-publishes-an-authentication-key`, and 33
 `standard-collections-are-provisioned`.
 
-The pivot is the stage-2 genesis entry. Stage 1's record is the inert pre-pivot
-write, since it grants nothing until that entry publishes rung 0. The stage-4
-re-bind is a second commit point rather than a second pivot: a full overwrite of
-the same record, re-derivable from the log and the ladder seed, and the state
-the mend's establishment arm marks DOWNGRADED when the re-bind is what tore. The
-stage-3 pointer entry is post-pivot and re-derivable, its orphaned-Space residue
-aside. Invariants a torn run can leave violated (numbered as in `INVARIANT_IDS`,
-`menders/ids.ts`): 5 `registry-passphrase-entry-names-the-standing-credential`,
-10 `unlock-record-points-at-the-account-did`, 11
-`account-pointer-names-the-account-did`, 12
-`space-controller-is-the-account-did`, 13 `roster-and-collection-epochs-exist`,
-14 `registry-records-the-establishing-credential`, 15
-`annex-generation-is-reachable`, 18 `did-web-projection-matches-the-log`, 26
-`document-lists-the-acting-credential`, 27
-`keystore-controller-is-the-account-did`, 28
-`account-document-publishes-an-authentication-key`, and 33
-`standard-collections-are-provisioned`.
-
 ## The credential-anchored mend (`clientAnnex/mend.ts`, `mendCredentialAnchoredAccount`)
 
 The sibling entry point that converges the establishment's tear states from any
