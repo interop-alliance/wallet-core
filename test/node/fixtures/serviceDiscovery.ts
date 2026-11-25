@@ -7,6 +7,7 @@
  * unsigned requests here, stated once.
  */
 import { vi } from 'vitest'
+import { AUTHZ_PROFILE_SPEC_ID } from '@interop/pws-client'
 import type { ServiceDescription } from '@interop/pws-client'
 import {
   serviceDescriptionUrl,
@@ -16,7 +17,8 @@ import {
 /**
  * A v0.5 service description for a fake server at `serverUrl`, with the
  * description itself at `service` and the Spaces Repository at `spaces/`
- * under it.
+ * under it. It lists the zCap authorization profile beside the PWS entry,
+ * since pws-client refuses a server that offers no version of either.
  *
  * @param serverUrl {string}   the server base URL
  * @returns {ServiceDescription}
@@ -31,7 +33,8 @@ export function serviceDescriptionFor(serverUrl: string): ServiceDescription {
           spaces: spacesRepositoryUrl({ baseServerUrl: serverUrl }),
           features: ['listing', 'collection-management', 'space-management']
         }
-      ]
+      ],
+      [AUTHZ_PROFILE_SPEC_ID]: [{ version: '0.1' }]
     }
   }
 }
